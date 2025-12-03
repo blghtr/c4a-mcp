@@ -1,5 +1,5 @@
 # Multi-stage build for c4a-mcp
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Install system dependencies needed for building
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,13 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
+# Using pip is reliable for builder stage; official installer requires additional setup
 RUN pip install --no-cache-dir uv
 
 # Set working directory
 WORKDIR /app
 
 # Copy dependency files and source code
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock* README.md ./
 COPY src/ ./src/
 
 # Install the package with all its dependencies using uv
@@ -52,21 +53,28 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Set working directory (package is already installed from builder)
 WORKDIR /app
 
-# Install Playwright browsers (Chromium by default for crawl4ai)
-# Must be done before creating non-root user to ensure proper installation
-RUN playwright install --with-deps chromium
+# Create non-root user for security (before installing Playwright browsers)
+RUN useradd -m -u 1000 appuser
 
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /root/.cache
+# Set Playwright browsers path to user's home directory
+# This ensures browsers are installed in a location accessible to non-root user
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/appuser/.cache/ms-playwright
+
+# Install Playwright browsers (Chromium by default for crawl4ai)
+# Install as root, but in user-accessible location
+RUN playwright install --with-deps chromium && \
+    chown -R appuser:appuser /home/appuser/.cache
+
+# Set ownership of app directory
+RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser
 
 # Health check for container orchestration
+# Check that Python is available and c4a-mcp command exists
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import sys; sys.exit(0)" || exit 1
+  CMD python -c "import sys; import c4a_mcp; sys.exit(0)" || exit 1
 
 # Set the entry point
 ENTRYPOINT ["c4a-mcp"]
