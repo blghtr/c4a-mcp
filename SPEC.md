@@ -1,14 +1,14 @@
 # Technical Specification: Crawl4AI MCP Server
 
 ## System Invariants
-- **INV-01**: The server MUST expose exactly one tool named `runner`.
+- **INV-01**: The server MUST expose the core `runner` tool AND three preset tools: `crawl_deep`, `crawl_deep_smart`, and `scrape_page`.
 - **INV-02**: All tool outputs MUST be valid JSON matching the `CallToolResult` schema from MCP.
-- **INV-03**: The `runner` tool MUST NOT persist state between independent tool calls (stateless).
+- **INV-03**: The `runner` and preset tools MUST NOT persist state between independent tool calls (stateless).
 
 ## Feature Specifications
 
 ### SPEC-F001: The `runner` Tool
-**Rationale**: To provide a unified interface for AI agents to execute web interactions.
+**Rationale**: To provide a unified, low-level interface for AI agents to execute complex web interactions.
 **References**: PRD-F001
 
 **Contract**:
@@ -58,11 +58,27 @@ class RunnerInput(BaseModel):
 - [ ] Providing `css_selector` restricts output markdown to that element.
 - [ ] Providing `word_count_threshold` filters extracted text.
 
+### SPEC-F004: Preset Tools
+**Rationale**: To provide simplified, purpose-built tools for common crawling patterns (Deep BFS, Keyword-based, Single-page scraping).
+**References**: PRD-F004
+
+**Contract**:
+- **GIVEN** a call to `crawl_deep`, `crawl_deep_smart`, or `scrape_page`
+- **WHEN** the tool is executed
+- **THEN** it SHALL map inputs to a specialized `DeepCrawlStrategy` or `ExtractionStrategy`
+- **AND** invoke the underlying `CrawlRunner` with a generated `CrawlerRunConfig`.
+
+**Invariants**:
+- Preset tools must reuse the same `CrawlRunner` logic as the main tool to ensure consistent error handling and browser configuration.
+- `crawl_deep` must default to BFS strategy.
+- `crawl_deep_smart` must default to Best-First strategy using provided keywords.
+
 ## Architecture & Dependencies
 - **Language**: Python 3.10+
 - **Core Library**: `crawl4ai`
 - **Protocol**: `mcp` (Model Context Protocol)
 - **Server Framework**: `mcp` (using `FastMCP` class).
+- **Patterns**: Dependency Injection (via Factory pattern) used for preset tools to allow stateless tool creation and easier testing.
 
 ## Error Handling
 - **Network Errors**: Return `{ "error": "Network error: <details>", "markdown": "" }`.

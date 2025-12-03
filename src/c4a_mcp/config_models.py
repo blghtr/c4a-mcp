@@ -148,11 +148,22 @@ class CrawlerConfigYAML(BaseModel):
         if "timeout" in kwargs:
             kwargs["page_timeout"] = int(kwargs.pop("timeout") * 1000)
 
-        # Convert schema model to dict if present
-        if "extraction_strategy_schema" in kwargs and isinstance(
-            kwargs["extraction_strategy_schema"], BaseModel
-        ):
-            kwargs["extraction_strategy_schema"] = kwargs["extraction_strategy_schema"].model_dump()
+        # Convert extraction_strategy and schema to JsonCssExtractionStrategy instance
+        if "extraction_strategy" in kwargs and kwargs["extraction_strategy"] == "jsoncss":
+            extraction_strategy = kwargs.pop("extraction_strategy")
+            schema = kwargs.pop("extraction_strategy_schema", None)
+            if schema:
+                # Convert schema to dict if it's a BaseModel
+                if isinstance(schema, BaseModel):
+                    schema_dict = schema.model_dump()
+                else:
+                    schema_dict = schema
+                # Create JsonCssExtractionStrategy instance
+                from crawl4ai import JsonCssExtractionStrategy
+                kwargs["extraction_strategy"] = JsonCssExtractionStrategy(schema=schema_dict)
+            else:
+                # Should not happen due to validation, but handle gracefully
+                kwargs.pop("extraction_strategy", None)
 
         return kwargs
 

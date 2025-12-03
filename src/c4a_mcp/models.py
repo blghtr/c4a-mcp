@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
+from .config_models import CrawlerConfigYAML
+
 logger = logging.getLogger(__name__)
 
 # Valid c4a-script commands from documentation
@@ -141,9 +143,6 @@ class RunnerInput(BaseModel):
         """
         if v is None:
             return v
-
-        # Import here to avoid circular dependency
-        from .config_models import CrawlerConfigYAML
 
         # Let CrawlerConfigYAML handle all validation
         try:

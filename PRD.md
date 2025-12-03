@@ -11,6 +11,9 @@ AI Agents currently lack a standardized, high-level interface to interact with d
 - [ ] **Story 1**: As an AI agent, I want to submit a URL and a `c4a-script` (DSL) to a tool so that I can perform multi-step interactions (e.g., search, wait, click) on a page before extracting content.
 - [ ] **Story 2**: As an AI agent, I want to provide a configuration object (specifying CSS selectors or extraction strategies) alongside my script so that the returned data is structured and irrelevant noise is filtered out.
 - [ ] **Story 3**: As an AI agent, I want to receive a markdown representation of the final page state so that I can easily read and process the information.
+- [ ] **Story 4**: As an AI agent, I want to crawl a website deeply (BFS) to gather context from multiple linked pages without manually managing the crawl queue.
+- [ ] **Story 5**: As an AI agent, I want to crawl a website prioritizing pages that match specific keywords to find relevant information faster.
+- [ ] **Story 6**: As an AI agent, I want to use simplified, high-level tools for common tasks (like single-page scraping with a specific strategy) without constructing complex configuration objects.
 
 ## Functional Requirements
 
@@ -39,13 +42,25 @@ The `runner` must accept and apply standard `crawl4ai` configuration options.
 *   Support for `css_selector` to limit scope.
 *   Support for excluding external links or tags.
 
+### F004: Preset Tools (P1)
+The server must expose high-level preset tools for common crawling patterns, abstracting complex configurations.
+
+*   **`crawl_deep`**: Performs Breadth-First Search (BFS) crawling.
+    *   Inputs: `url`, `max_depth` (default 2), `max_pages` (default 50), `include_external` (bool).
+    *   Supports `extraction_strategy` ("regex", "css", "llm") and `extraction_strategy_config`.
+*   **`crawl_deep_smart`**: Performs Best-First Search crawling based on keywords.
+    *   Inputs: `url`, `keywords` (list[str]), `max_depth`, `max_pages`.
+*   **`scrape_page`**: Single-page scraping with explicit strategy support.
+    *   Inputs: `url`, `extraction_strategy`, `extraction_strategy_config`.
+
 ## Non-Functional Requirements
 -   **Performance**: The tool should timeout gracefully if a script hangs (default 60s).
 -   **Reliability**: Must handle network errors or invalid selectors without crashing the MCP server.
 -   **Security**: The server executes web interactions; it should be run in a sandboxed environment or with explicit user permission for each domain if possible (handled by MCP client permissions).
 
 ## MVP Scope (Release 1.0)
--   Single `runner` tool.
+-   Core `runner` tool for low-level control.
+-   Preset tools (`crawl_deep`, `crawl_deep_smart`, `scrape_page`) for high-level workflows.
 -   Support for text/markdown extraction.
 -   Support for basic `c4a-script` execution.
 -   No authentication/persistence in MVP.

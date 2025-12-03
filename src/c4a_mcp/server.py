@@ -2,6 +2,7 @@
 # :hierarchy: [C4A-MCP | Server]
 # :relates-to: uses: "mcp.FastMCP", uses: "runner_tool", uses: "config_models.AppConfig"
 # :rationale: "Entry point for the MCP server, handling tool registration and request routing."
+# :references: PRD: "F001", SPEC: "SPEC-F001, SPEC-F004"
 # :contract: invariant: "Server must remain responsive and handle exceptions gracefully"
 # :decision_cache: "Using FastMCP for simplified decorator-based tool definition [ARCH-004]"
 # LLM:END
@@ -15,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config_models import AppConfig
 from .models import RunnerInput, RunnerOutput
+from .presets.preset_tools import create_preset_tools
 from .runner_tool import CrawlRunner
 
 # Configure logger with hierarchy path format
@@ -87,6 +89,11 @@ crawl_runner = CrawlRunner(
     default_crawler_config=app_config.crawler,
     browser_config=browser_config,
 )
+
+# Create preset tools with dependency injection
+# NOTE(REVIEWER): Factory pattern eliminates global state, improving testability
+# and enabling potential future multi-runner scenarios (e.g., per-tenant runners)
+crawl_deep, crawl_deep_smart, scrape_page = create_preset_tools(crawl_runner)
 
 
 # NOTE(REVIEWER): Tool signature matches PRD-F001 requirements.
@@ -331,6 +338,13 @@ async def runner(url: str, script: str | None = None, config: dict | None = None
             error=f"Tool execution failed: {type(e).__name__} - {e}",
         )
         return error_output.model_dump_json()
+
+
+# Register preset tools
+# NOTE: FastMCP automatically generates MCP tool schemas from function signatures
+mcp.tool()(crawl_deep)
+mcp.tool()(crawl_deep_smart)
+mcp.tool()(scrape_page)
 
 
 def serve():

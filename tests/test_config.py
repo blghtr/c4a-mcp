@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Quick smoke test for config system."""
 
 from pathlib import Path
@@ -7,7 +6,8 @@ from c4a_mcp.config_models import AppConfig, CrawlerConfigYAML
 
 # Test 1: Load defaults.yaml
 print("Test 1: Loading defaults.yaml...")
-config_path = Path(__file__).parent / "src" / "c4a_mcp" / "config" / "defaults.yaml"
+# Path relative to project root, not test directory
+config_path = Path(__file__).parent.parent / "src" / "c4a_mcp" / "config" / "defaults.yaml"
 app_config = AppConfig.from_yaml(config_path)
 print(f"✓ Loaded: browser={app_config.browser.browser_type}, timeout={app_config.crawler.timeout}s")
 

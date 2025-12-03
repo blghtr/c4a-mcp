@@ -1,7 +1,8 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Logic]
-# :relates-to: uses: "crawl4ai.AsyncWebCrawler", uses: "config_models.CrawlerConfigYAML", implements: "SPEC-F001, SPEC-F002, SPEC-F003"
+# :relates-to: uses: "crawl4ai.AsyncWebCrawler", uses: "config_models.CrawlerConfigYAML"
 # :rationale: "Encapsulates the core business logic of configuring and executing the crawl4ai crawler."
+# :references: PRD: "F001, F002, F003", SPEC: "SPEC-F001, SPEC-F002, SPEC-F003"
 # :contract: pre: "Valid RunnerInput", post: "Returns RunnerOutput with markdown or error"
 # :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]"
 # LLM:END
