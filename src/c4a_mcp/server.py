@@ -1,27 +1,92 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Server]
-# :relates-to: uses: "mcp.FastMCP", uses: "runner_tool"
+# :relates-to: uses: "mcp.FastMCP", uses: "runner_tool", uses: "config_models.AppConfig"
 # :rationale: "Entry point for the MCP server, handling tool registration and request routing."
 # :contract: invariant: "Server must remain responsive and handle exceptions gracefully"
 # :decision_cache: "Using FastMCP for simplified decorator-based tool definition [ARCH-004]"
 # LLM:END
 
 import logging
+import sys
 import traceback
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from .config_models import AppConfig
 from .models import RunnerInput, RunnerOutput
 from .runner_tool import CrawlRunner
 
 # Configure logger with hierarchy path format
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Configuration Loading (Startup)
+# ============================================================================
+
+# Load default config from package
+DEFAULT_CONFIG_PATH = Path(__file__).parent / "config" / "defaults.yaml"
+
+try:
+    app_config = AppConfig.from_yaml(DEFAULT_CONFIG_PATH)
+    logger.info(
+        "[C4A-MCP | Server] Loaded default config | data: {path: %s}",
+        DEFAULT_CONFIG_PATH,
+    )
+except Exception as e:
+    logger.error(
+        "[C4A-MCP | Server] Failed to load default config | " "data: {path: %s, error: %s}",
+        DEFAULT_CONFIG_PATH,
+        str(e),
+    )
+    raise
+
+# Check for override config path in sys.argv (from MCP args)
+# Expected format: --config=/path/to/overrides.yaml
+for arg in sys.argv[1:]:
+    if arg.startswith("--config="):
+        override_path = Path(arg.split("=", 1)[1])
+        try:
+            override_config = AppConfig.from_yaml(override_path)
+            # Merge: override takes precedence
+            app_config.browser = app_config.browser.merge(override_config.browser)
+            app_config.crawler = app_config.crawler.merge(override_config.crawler)
+            logger.info(
+                "[C4A-MCP | Server] Loaded config overrides | data: {path: %s}",
+                override_path,
+            )
+        except Exception as e:
+            logger.error(
+                "[C4A-MCP | Server] Failed to load override config | "
+                "data: {path: %s, error: %s}",
+                override_path,
+                str(e),
+            )
+            # Don't raise - continue with defaults
+            # NOTE(REVIEWER): Fallback to defaults is safe, but user might miss the error if logs aren't monitored.
+            # TODO(REVIEWER): Consider adding a `--strict-config` flag to exit on override failure.
+        break
+
+# Create BrowserConfig once at startup
+browser_config = app_config.browser.to_browser_config()
+logger.info(
+    "[C4A-MCP | Server] Created BrowserConfig | data: {headless: %s, type: %s}",
+    browser_config.headless,
+    browser_config.browser_type,
+)
+
+# ============================================================================
+# MCP Server Setup
+# ============================================================================
+
 # Initialize FastMCP server
 mcp = FastMCP("c4a-mcp")
 
-# Instantiate CrawlRunner once, as it's stateless and can be reused
-crawl_runner = CrawlRunner()
+# Instantiate CrawlRunner with configs
+crawl_runner = CrawlRunner(
+    default_crawler_config=app_config.crawler,
+    browser_config=browser_config,
+)
 
 
 # NOTE(REVIEWER): Tool signature matches PRD-F001 requirements.

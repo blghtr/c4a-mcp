@@ -1,6 +1,6 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Models]
-# :relates-to: motivated_by: "PRD-F001", implements: "SPEC-F001"
+# :relates-to: uses: "config_models.CrawlerConfigYAML", motivated_by: "PRD-F001", implements: "SPEC-F001"
 # :rationale: "Defines strict types for tool inputs and outputs to ensure runtime safety and schema generation."
 # :contract: invariant: "All inputs must be serializable to JSON"
 # :decision_cache: "Used Pydantic for robust validation and schema generation compatible with MCP [ARCH-002]"
@@ -36,18 +36,7 @@ VALID_C4A_COMMANDS = {
     "EVAL",  # Variables & Advanced
 }
 
-# Valid config fields based on CrawlerRunConfig and _map_config implementation
-VALID_CONFIG_FIELDS = {
-    "bypass_cache",
-    "timeout",
-    "css_selector",
-    "wait_for",
-    "word_count_threshold",
-    "exclude_external_links",
-    "exclude_social_media_links",
-    "extraction_strategy",
-    "extraction_strategy_schema",
-}
+# NOTE: VALID_CONFIG_FIELDS removed - validation now handled by CrawlerConfigYAML in config_models.py
 
 
 class RunnerInput(BaseModel):
@@ -55,14 +44,11 @@ class RunnerInput(BaseModel):
     Input parameters for the crawl runner tool.
     """
 
-    url: str = Field(
-        ..., description="The starting URL for the crawl session."
-    )
+    url: str = Field(..., description="The starting URL for the crawl session.")
     script: str | None = Field(
         None,
         description=(
-            "A c4a-script DSL string defining interaction steps "
-            "(GO, WAIT, CLICK, etc)."
+            "A c4a-script DSL string defining interaction steps " "(GO, WAIT, CLICK, etc)."
         ),
     )
     config: dict[str, Any] | None = Field(
@@ -91,9 +77,7 @@ class RunnerInput(BaseModel):
         parsed = urlparse(v)
         if not parsed.scheme or parsed.scheme not in ("http", "https"):
             scheme_str = parsed.scheme or "no scheme"
-            raise ValueError(
-                f"URL must use http:// or https:// protocol, got: {scheme_str}"
-            )
+            raise ValueError(f"URL must use http:// or https:// protocol, got: {scheme_str}")
         if not parsed.netloc:
             raise ValueError("Invalid URL format: missing netloc (domain)")
         return v
@@ -141,7 +125,10 @@ class RunnerInput(BaseModel):
     @classmethod
     def validate_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         """
-        Validate config fields against CrawlerRunConfig.
+        Validate config by delegating to CrawlerConfigYAML model.
+
+        All validation logic is centralized in config_models.CrawlerConfigYAML.
+        This ensures consistency between YAML configs and tool-level configs.
 
         Args:
             v: Config dictionary to validate
@@ -150,89 +137,25 @@ class RunnerInput(BaseModel):
             Validated config dictionary or None
 
         Raises:
-            ValueError: If config contains invalid values or missing required fields
+            ValueError: If config validation fails
         """
         if v is None:
             return v
 
-        # Warn about unknown fields but don't fail (for compatibility)
-        unknown_fields = set(v.keys()) - VALID_CONFIG_FIELDS
-        if unknown_fields:
-            logger.warning(
-                "[C4A-MCP | Models] Unknown config fields will be ignored | "
-                "data: {unknown_fields: %s}",
-                sorted(unknown_fields),
+        # Import here to avoid circular dependency
+        from .config_models import CrawlerConfigYAML
+
+        # Let CrawlerConfigYAML handle all validation
+        try:
+            validated_config = CrawlerConfigYAML.from_dict(v)
+            # Return as dict for backward compatibility
+            return validated_config.model_dump(exclude_none=True)
+        except Exception as e:
+            logger.error(
+                "[C4A-MCP | Models] Config validation failed | data: {error: %s}",
+                str(e),
             )
-
-        # Validate extraction_strategy
-        if "extraction_strategy" in v:
-            strategy = v["extraction_strategy"]
-            if strategy and strategy.lower() != "jsoncss":
-                raise ValueError(
-                    f"Only 'jsoncss' extraction_strategy is supported, got: {strategy}"
-                )
-            if strategy and strategy.lower() == "jsoncss" and "extraction_strategy_schema" not in v:
-                raise ValueError(
-                    "extraction_strategy_schema is required when extraction_strategy='jsoncss'"
-                )
-
-        # Validate types for known fields
-        if "bypass_cache" in v and not isinstance(v["bypass_cache"], bool):
-            got_type = type(v["bypass_cache"]).__name__
-            raise ValueError(f"bypass_cache must be bool, got {got_type}")
-
-        if "timeout" in v:
-            timeout = v["timeout"]
-            if not isinstance(timeout, (int, float)) or timeout <= 0:
-                raise ValueError(
-                    f"timeout must be a positive number, got: {timeout}"
-                )
-
-        if "css_selector" in v:
-            css_sel = v["css_selector"]
-            if css_sel is not None and not isinstance(css_sel, str):
-                got_type = type(css_sel).__name__
-                raise ValueError(f"css_selector must be str or None, got {got_type}")
-
-        if "wait_for" in v:
-            wait_val = v["wait_for"]
-            if wait_val is not None and not isinstance(wait_val, str):
-                got_type = type(wait_val).__name__
-                raise ValueError(f"wait_for must be str or None, got {got_type}")
-
-        if "word_count_threshold" in v and v["word_count_threshold"] is not None:
-            threshold = v["word_count_threshold"]
-            if not isinstance(threshold, int) or threshold < 0:
-                raise ValueError(
-                    f"word_count_threshold must be a non-negative integer, "
-                    f"got: {threshold}"
-                )
-
-        if "exclude_external_links" in v:
-            ext_links = v["exclude_external_links"]
-            if not isinstance(ext_links, bool):
-                got_type = type(ext_links).__name__
-                raise ValueError(
-                    f"exclude_external_links must be bool, got {got_type}"
-                )
-
-        if "exclude_social_media_links" in v:
-            social_links = v["exclude_social_media_links"]
-            if not isinstance(social_links, bool):
-                got_type = type(social_links).__name__
-                raise ValueError(
-                    f"exclude_social_media_links must be bool, got {got_type}"
-                )
-
-        if "extraction_strategy_schema" in v:
-            schema = v["extraction_strategy_schema"]
-            if not isinstance(schema, dict):
-                got_type = type(schema).__name__
-                raise ValueError(
-                    f"extraction_strategy_schema must be dict, got {got_type}"
-                )
-
-        return v
+            raise ValueError(f"Invalid config: {e}") from e
 
 
 class RunnerOutput(BaseModel):

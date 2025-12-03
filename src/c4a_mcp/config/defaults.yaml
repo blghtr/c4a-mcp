@@ -1,0 +1,17 @@
+# Default Configuration for C4A-MCP
+# This file contains package-level defaults for browser and crawler settings.
+# Users can override these by providing a custom YAML file via MCP args.
+
+# Browser Configuration
+browser:
+  headless: true
+  browser_type: "chromium"
+  verbose: false
+
+# Crawler Configuration
+crawler:
+  timeout: 60  # seconds (converted to milliseconds internally)
+  bypass_cache: true
+  word_count_threshold: 200
+  exclude_external_links: false
+  exclude_social_media_links: false

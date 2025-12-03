@@ -1,6 +1,6 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Logic]
-# :relates-to: uses: "crawl4ai.AsyncWebCrawler", implements: "SPEC-F001, SPEC-F002, SPEC-F003"
+# :relates-to: uses: "crawl4ai.AsyncWebCrawler", uses: "config_models.CrawlerConfigYAML", implements: "SPEC-F001, SPEC-F002, SPEC-F003"
 # :rationale: "Encapsulates the core business logic of configuring and executing the crawl4ai crawler."
 # :contract: pre: "Valid RunnerInput", post: "Returns RunnerOutput with markdown or error"
 # :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]"
@@ -9,17 +9,11 @@
 import logging
 import traceback
 from datetime import datetime
-from typing import Any
 
 # Import crawl4ai components
-from crawl4ai import (
-    AsyncWebCrawler,
-    CacheMode,
-    CrawlerRunConfig,
-    CrawlResult,
-    JsonCssExtractionStrategy,
-)
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CrawlResult
 
+from .config_models import CrawlerConfigYAML
 from .models import RunnerInput, RunnerOutput
 
 # Configure logger with hierarchy path format
@@ -29,7 +23,30 @@ logger = logging.getLogger(__name__)
 class CrawlRunner:
     """
     Executes crawl sessions using crawl4ai based on provided configuration.
+
+    Attributes:
+        default_crawler_config: Default crawler configuration from YAML
+        browser_config: Pre-created browser configuration
     """
+
+    def __init__(
+        self,
+        default_crawler_config: CrawlerConfigYAML,
+        browser_config: BrowserConfig,
+    ):
+        """Initialize CrawlRunner with default configs.
+
+        Args:
+            default_crawler_config: Default crawler settings (from YAML + overrides)
+            browser_config: Pre-created browser configuration
+        """
+        self.default_crawler_config = default_crawler_config
+        self.browser_config = browser_config
+        logger.info(
+            "[C4A-MCP | Logic] CrawlRunner initialized | " "data: {browser_type: %s, headless: %s}",
+            browser_config.browser_type,
+            browser_config.headless,
+        )
 
     async def run(self, inputs: RunnerInput) -> RunnerOutput:
         """
@@ -43,8 +60,9 @@ class CrawlRunner:
         """
         run_config = None  # Initialize to avoid UnboundLocalError
         try:
-            # Map input config to CrawlerRunConfig
-            run_config = self._map_config(inputs.config)
+            # Build CrawlerRunConfig with 3-layer merge:
+            # defaults → file overrides → tool overrides
+            run_config = self._build_run_config(inputs.config)
 
             # NOTE(REVIEWER): crawl4ai supports c4a-script DSL directly via js_code parameter.
             # The library automatically processes c4a-script commands (GO, CLICK, WAIT, etc.)
@@ -52,7 +70,10 @@ class CrawlRunner:
             if inputs.script:
                 run_config.js_code = inputs.script  # Pass c4a-script DSL to js_code
 
-            async with AsyncWebCrawler() as crawler:
+            # Use pre-created browser_config from constructor
+            # NOTE(REVIEWER): Reusing browser_config is efficient.
+            # Verified: AsyncWebCrawler treats config as read-only during initialization.
+            async with AsyncWebCrawler(config=self.browser_config) as crawler:
                 crawl_result: CrawlResult = await crawler.arun(inputs.url, config=run_config)
 
                 # Process result into RunnerOutput
@@ -119,68 +140,36 @@ class CrawlRunner:
             # Return only sanitized error message to client
             return RunnerOutput(markdown="", error=formatted_error)
 
-    def _map_config(self, config_dict: dict[str, Any] | None) -> CrawlerRunConfig:
+    def _build_run_config(self, tool_config_dict: dict | None) -> CrawlerRunConfig:
         """
-        Helper to convert dictionary config to CrawlerRunConfig.
-        """
-        if not config_dict:
-            return CrawlerRunConfig(cache_mode=CacheMode.BYPASS)  # Default config
+        Build CrawlerRunConfig with 3-layer merge:
+        defaults → file overrides → tool overrides.
 
-        # Convert bypass_cache to cache_mode if provided
-        cache_mode = CacheMode.BYPASS  # Default
-        if "bypass_cache" in config_dict:
-            cache_mode = (
-                CacheMode.BYPASS if config_dict.get("bypass_cache", True) else CacheMode.ENABLED
+        Args:
+            tool_config_dict: Optional config dict from tool call
+
+        Returns:
+            CrawlerRunConfig instance ready for crawl
+        """
+        # Start with defaults (already includes file overrides from server.py)
+        merged = self.default_crawler_config.model_copy()
+
+        # Apply tool-level overrides if provided
+        if tool_config_dict:
+            logger.debug(
+                "[C4A-MCP | Logic] Applying tool-level config overrides | " "data: {overrides: %s}",
+                tool_config_dict,
             )
+            tool_overrides = CrawlerConfigYAML.from_dict(tool_config_dict)
+            merged = merged.merge(tool_overrides)
 
-        # Convert timeout from seconds to milliseconds for page_timeout
-        # PRD specifies default 60s timeout (Non-Functional Requirements)
-        timeout_seconds = config_dict.get("timeout", 60)
-        # page_timeout is required int, default 60000 ms (60 seconds)
-        page_timeout_ms = int(timeout_seconds * 1000)
+        # Convert to CrawlerRunConfig kwargs (excludes None values, converts types)
+        kwargs = merged.to_crawler_run_config_kwargs()
 
-        # Build config dict with only non-None values for Optional fields
-        config_kwargs = {
-            "cache_mode": cache_mode,
-            "page_timeout": page_timeout_ms,  # Required int, always set
-            "exclude_external_links": config_dict.get("exclude_external_links", False),
-            "exclude_social_media_links": config_dict.get("exclude_social_media_links", False),
-        }
+        logger.debug(
+            "[C4A-MCP | Logic] Built CrawlerRunConfig | data: {kwargs: %s}",
+            kwargs,
+        )
 
-        # Add Optional[str] fields only if not None
-        css_selector = config_dict.get("css_selector")
-        if css_selector is not None:
-            config_kwargs["css_selector"] = css_selector
-
-        wait_for = config_dict.get("wait_for")
-        if wait_for is not None:
-            config_kwargs["wait_for"] = wait_for
-
-        # word_count_threshold is int, only add if provided (otherwise use crawl4ai default ~200)
-        word_count_threshold = config_dict.get("word_count_threshold")
-        if word_count_threshold is not None:
-            config_kwargs["word_count_threshold"] = int(word_count_threshold)
-
-        run_config = CrawlerRunConfig(**config_kwargs)
-
-        # Handle extraction strategy if provided
-        # JsonCssExtractionStrategy requires schema dict for initialization
-        extraction_strategy_str = config_dict.get("extraction_strategy")
-        if extraction_strategy_str:
-            extraction_strategy_schema = config_dict.get("extraction_strategy_schema")
-            if extraction_strategy_str.lower() == "jsoncss":
-                if extraction_strategy_schema:
-                    # Create instance with provided schema
-                    run_config.extraction_strategy = JsonCssExtractionStrategy(
-                        extraction_strategy_schema
-                    )
-                else:
-                    # Log warning if schema not provided
-                    logger.warning(
-                        "[C4A-MCP | Logic] extraction_strategy='jsoncss' specified "
-                        "but extraction_strategy_schema not provided. "
-                        "Skipping extraction strategy setup. | data: {config: %s}",
-                        config_dict,
-                    )
-
-        return run_config
+        # Create CrawlerRunConfig
+        return CrawlerRunConfig(**kwargs)
