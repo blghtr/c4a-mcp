@@ -291,7 +291,19 @@ async def adaptive_crawl_embedding(
     Returns:
         JSON string with RunnerOutput structure (markdown, metadata with confidence/metrics, error)
     """
+    # Access adaptive_crawl_runner from lifespan state
+    # Check context FIRST before checking dependencies
+    if ctx is None:
+        raise ValueError("Context is required for preset tools")
+    adaptive_runner = ctx.get_state("adaptive_crawl_runner")
+    if adaptive_runner is None:
+        raise ValueError(
+            "adaptive_crawl_runner not found in context state. "
+            "Ensure the server lifespan properly initializes adaptive_crawl_runner."
+        )
+    
     # Check if sentence-transformers is available when using local embeddings
+    # This check happens AFTER context validation to allow proper error handling
     if embedding_llm_config is None:
         try:
             import sentence_transformers  # noqa: F401
@@ -309,16 +321,6 @@ async def adaptive_crawl_embedding(
                     "pip install sentence-transformers"
                 )
             })
-    
-    # Access adaptive_crawl_runner from lifespan state
-    if ctx is None:
-        raise ValueError("Context is required for preset tools")
-    adaptive_runner = ctx.get_state("adaptive_crawl_runner")
-    if adaptive_runner is None:
-        raise ValueError(
-            "adaptive_crawl_runner not found in context state. "
-            "Ensure the server lifespan properly initializes adaptive_crawl_runner."
-        )
     
     # Validate input
     input_data = AdaptiveEmbeddingInput(
