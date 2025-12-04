@@ -302,6 +302,26 @@ async def adaptive_crawl_embedding(
             "Ensure the server lifespan properly initializes adaptive_crawl_runner."
         )
     
+    # Check if sentence-transformers is available when using local embeddings
+    # This check happens AFTER context validation to allow proper error handling
+    if embedding_llm_config is None:
+        try:
+            import sentence_transformers  # noqa: F401
+            logger.info(
+                "[C4A-MCP | Presets | Tools] sentence-transformers available, "
+                "will use local embeddings. First model load may take time."
+            )
+        except ImportError:
+            return json.dumps({
+                "markdown": "",
+                "metadata": {},
+                "error": (
+                    "sentence-transformers is required for local embeddings. "
+                    "Install it with: uv pip install --group embeddings or "
+                    "pip install sentence-transformers"
+                )
+            })
+    
     # Validate input
     input_data = AdaptiveEmbeddingInput(
         url=url,
@@ -323,26 +343,6 @@ async def adaptive_crawl_embedding(
         embedding_quality_max_confidence=embedding_quality_max_confidence,
         **(config or {}),
     )
-
-    # Check if sentence-transformers is available when using local embeddings
-    # This check happens AFTER validation so ValueError surfaces for bad input first
-    if input_data.embedding_llm_config is None:
-        try:
-            import sentence_transformers  # noqa: F401
-            logger.info(
-                "[C4A-MCP | Presets | Tools] sentence-transformers available, "
-                "will use local embeddings. First model load may take time."
-            )
-        except ImportError:
-            return json.dumps({
-                "markdown": "",
-                "metadata": {},
-                "error": (
-                    "sentence-transformers is required for local embeddings. "
-                    "Install it with: uv pip install --group embeddings or "
-                    "pip install sentence-transformers"
-                )
-            })
     
     # Prepare adaptive config parameters
     adaptive_config_params = {
