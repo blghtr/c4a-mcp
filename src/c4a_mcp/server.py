@@ -8,7 +8,6 @@
 # LLM:END
 
 import logging
-import os
 import sys
 import traceback
 from contextlib import asynccontextmanager
@@ -17,28 +16,13 @@ from pathlib import Path
 from fastmcp import FastMCP, Context
 
 from .config_models import AppConfig
+from .logging_config import setup_logging
 from .models import RunnerInput, RunnerOutput
 from .presets.preset_tools import crawl_deep, crawl_deep_smart, scrape_page
 from .runner_tool import CrawlRunner
 
 # Configure logging
-# Respect LOGLEVEL environment variable (DEBUG, INFO, WARNING, ERROR)
-# CRITICAL: Must use stderr to keep stdout clean for MCP JSON-RPC communication
-# TODO(REVIEWER): Move to separate file
-log_level = os.environ.get("LOGLEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
-    format="[%(asctime)s] %(levelname)-8s [%(name)s] %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stderr),
-        logging.FileHandler(
-            Path(__file__).parent.parent.parent / "server_debug.log",
-            mode="a",
-            encoding="utf-8",
-        ),
-    ],
-)
+setup_logging()
 
 # Configure logger with hierarchy path format
 logger = logging.getLogger(__name__)
