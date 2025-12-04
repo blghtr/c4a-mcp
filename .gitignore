@@ -12,3 +12,5 @@ doc/
 .pyrightconfig.json
 
 __pycache__/
+*.log
+server_debug.log
