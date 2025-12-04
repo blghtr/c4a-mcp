@@ -13,6 +13,8 @@ These models validate parameters for preset tools, extending the base
 CrawlerConfigYAML pattern for consistency with existing code.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -52,30 +54,15 @@ class ExtractionConfigCss(BaseModel):
     """Configuration for JsonCssExtractionStrategy."""
 
     type: Literal["css"] = "css"
-    schema: dict[str, Any] = Field(
-        ..., description="CSS extraction schema with name, baseSelector, and fields"
+    extraction_schema: dict[str, Any] = Field(
+        ..., description="CSS extraction schema with name, baseSelector, and fields", alias="schema"
     )
-
-
-class ExtractionConfigLlm(BaseModel):
-    """Configuration for LLMExtractionStrategy."""
-
-    type: Literal["llm"] = "llm"
-    provider: str = Field(..., description="LLM provider (e.g., openai/gpt-4o-mini)")
-    api_token: str | None = Field(
-        None, description="API token or env:VAR_NAME format"
-    )
-    schema: dict[str, Any] | None = Field(
-        None, description="Pydantic schema or dict for structured extraction"
-    )
-    instruction: str | None = Field(None, description="Custom extraction instruction")
-    extraction_type: str = Field(
-        "block", description="Extraction type: block or schema"
-    )
+    
+    model_config = {"populate_by_name": True}
 
 
 # Union type for extraction configs (discriminated by "type" field)
-ExtractionConfig = ExtractionConfigRegex | ExtractionConfigCss | ExtractionConfigLlm
+ExtractionConfig = ExtractionConfigRegex | ExtractionConfigCss
 
 
 class PresetBaseConfig(CrawlerConfigYAML):
@@ -87,9 +74,9 @@ class PresetBaseConfig(CrawlerConfigYAML):
 
     # Extraction parameters
     extraction_strategy: str | None = Field(
-        None, description="Extraction strategy type: regex, css, llm, or None"
+        None, description="Extraction strategy type: regex, css, or None"
     )
-    extraction_strategy_config: dict[str, Any] | None = Field(
+    extraction_strategy_config: ExtractionConfig | None = Field(
         None, description="Configuration for the extraction strategy"
     )
 
@@ -118,9 +105,9 @@ class PresetBaseConfig(CrawlerConfigYAML):
     @classmethod
     def validate_extraction_strategy(cls, v: str | None) -> str | None:
         """Validate extraction strategy type."""
-        if v is not None and v.lower() not in ("regex", "css", "llm"):
+        if v is not None and v.lower() not in ("regex", "css"):
             raise ValueError(
-                f"extraction_strategy must be 'regex', 'css', 'llm', or None, got: {v}"
+                f"extraction_strategy must be 'regex', 'css', or None, got: {v}"
             )
         return v.lower() if v else None
 
@@ -149,7 +136,7 @@ class DeepCrawlPresetInput(BaseModel):
     )
     # All common preset parameters
     extraction_strategy: str | None = None
-    extraction_strategy_config: dict[str, Any] | None = None
+    extraction_strategy_config: ExtractionConfig | None = None
     timeout: int | float | None = None
     css_selector: str | None = None
     word_count_threshold: int | None = None
@@ -201,6 +188,7 @@ class DeepCrawlPresetInput(BaseModel):
         return v
 
 
+
 class CrawlDeepSmartInput(DeepCrawlPresetInput):
     """Input model for crawl_deep_smart tool (adds keywords)."""
 
@@ -221,7 +209,7 @@ class ScrapePagePresetInput(BaseModel):
     url: str = Field(..., description="URL of the page to scrape")
     # All common preset parameters
     extraction_strategy: str | None = None
-    extraction_strategy_config: dict[str, Any] | None = None
+    extraction_strategy_config: ExtractionConfig | None = None
     timeout: int | float | None = None
     css_selector: str | None = None
     word_count_threshold: int | None = None
@@ -255,4 +243,5 @@ class ScrapePagePresetInput(BaseModel):
         if not parsed.netloc:
             raise ValueError("Invalid URL format: missing netloc (domain)")
         return v
+
 

@@ -20,7 +20,6 @@ from c4a_mcp.presets.models import (
     CrawlDeepSmartInput,
     DeepCrawlPresetInput,
     ExtractionConfigCss,
-    ExtractionConfigLlm,
     ExtractionConfigRegex,
     PresetBaseConfig,
     ScrapePagePresetInput,
@@ -132,7 +131,7 @@ def test_preset_base_config_extraction_strategy_invalid_type():
     """Test PresetBaseConfig with invalid extraction_strategy type."""
     with pytest.raises(ValidationError) as exc_info:
         PresetBaseConfig(extraction_strategy="invalid")
-    assert "must be 'regex', 'css', 'llm', or None" in str(exc_info.value)
+        assert "must be 'regex', 'css', or None" in str(exc_info.value)
 
 
 # --- Test ExtractionConfig models ---
@@ -188,21 +187,9 @@ def test_extraction_config_css():
         "baseSelector": ".product-card",
         "fields": [{"name": "title", "selector": "h2", "type": "text"}],
     }
-    config = ExtractionConfigCss(type="css", schema=schema)
+    config = ExtractionConfigCss(type="css", extraction_schema=schema)
     assert config.type == "css"
-    assert config.schema == schema
+    assert config.extraction_schema == schema
 
 
-def test_extraction_config_llm():
-    """Test ExtractionConfigLlm."""
-    config = ExtractionConfigLlm(
-        type="llm",
-        provider="openai/gpt-4o-mini",
-        api_token="test-token",
-        extraction_type="schema",
-    )
-    assert config.type == "llm"
-    assert config.provider == "openai/gpt-4o-mini"
-    assert config.api_token == "test-token"
-    assert config.extraction_type == "schema"
 

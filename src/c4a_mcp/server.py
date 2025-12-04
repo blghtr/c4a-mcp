@@ -1,23 +1,44 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Server]
-# :relates-to: uses: "mcp.FastMCP", uses: "runner_tool", uses: "config_models.AppConfig"
+# :relates-to: uses: "fastmcp.FastMCP", uses: "runner_tool", uses: "config_models.AppConfig"
 # :rationale: "Entry point for the MCP server, handling tool registration and request routing."
 # :references: PRD: "F001", SPEC: "SPEC-F001, SPEC-F004"
 # :contract: invariant: "Server must remain responsive and handle exceptions gracefully"
-# :decision_cache: "Using FastMCP for simplified decorator-based tool definition [ARCH-004]"
+# :decision_cache: "Using FastMCP standalone for richer features (auth, middleware, deployment) [ARCH-004]. Lifespan context manages CrawlRunner lifecycle [ARCH-012]"
 # LLM:END
 
 import logging
+import os
 import sys
 import traceback
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 
 from .config_models import AppConfig
 from .models import RunnerInput, RunnerOutput
-from .presets.preset_tools import create_preset_tools
+from .presets.preset_tools import crawl_deep, crawl_deep_smart, scrape_page
 from .runner_tool import CrawlRunner
+
+# Configure logging
+# Respect LOGLEVEL environment variable (DEBUG, INFO, WARNING, ERROR)
+# CRITICAL: Must use stderr to keep stdout clean for MCP JSON-RPC communication
+# TODO(REVIEWER): Move to separate file
+log_level = os.environ.get("LOGLEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format="[%(asctime)s] %(levelname)-8s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stderr),
+        logging.FileHandler(
+            Path(__file__).parent.parent.parent / "server_debug.log",
+            mode="a",
+            encoding="utf-8",
+        ),
+    ],
+)
 
 # Configure logger with hierarchy path format
 logger = logging.getLogger(__name__)
@@ -37,7 +58,7 @@ try:
     )
 except Exception as e:
     logger.error(
-        "[C4A-MCP | Server] Failed to load default config | " "data: {path: %s, error: %s}",
+        "[C4A-MCP | Server] Failed to load default config | data: {path: %s, error: %s}",
         DEFAULT_CONFIG_PATH,
         str(e),
     )
@@ -69,37 +90,62 @@ for arg in sys.argv[1:]:
             # TODO(REVIEWER): Consider adding a `--strict-config` flag to exit on override failure.
         break
 
-# Create BrowserConfig once at startup
-browser_config = app_config.browser.to_browser_config()
-logger.info(
-    "[C4A-MCP | Server] Created BrowserConfig | data: {headless: %s, type: %s}",
-    browser_config.headless,
-    browser_config.browser_type,
-)
+# ============================================================================
+# Lifespan Context Manager
+# ============================================================================
+
+
+@asynccontextmanager
+async def lifespan(mcp_server: FastMCP):
+    """
+    Manage server lifecycle: initialize resources on startup, cleanup on shutdown.
+
+    Yields:
+        dict: Lifespan state with crawl_runner and app_config
+    """
+    logger.info("[C4A-MCP | Server] Starting lifespan: initializing resources")
+
+    # Create BrowserConfig from app config
+    browser_config = app_config.browser.to_browser_config()
+    logger.info(
+        "[C4A-MCP | Server] Created BrowserConfig | data: {headless: %s, type: %s}",
+        browser_config.headless,
+        browser_config.browser_type,
+    )
+
+    # Instantiate CrawlRunner with configs
+    crawl_runner = CrawlRunner(
+        default_crawler_config=app_config.crawler,
+        browser_config=browser_config,
+    )
+
+    logger.info("[C4A-MCP | Server] CrawlRunner initialized")
+
+    try:
+        # Yield state to make available during server runtime
+        yield {"crawl_runner": crawl_runner, "app_config": app_config}
+    finally:
+        # Cleanup resources on shutdown
+        logger.info("[C4A-MCP | Server] Shutting down: cleaning up resources")
+        # NOTE: crawl4ai's AsyncWebCrawler uses context manager, so no explicit cleanup needed
+        # Browser instances are created/destroyed per request in runner_tool.py
+        logger.info("[C4A-MCP | Server] Shutdown complete")
+
 
 # ============================================================================
 # MCP Server Setup
 # ============================================================================
 
-# Initialize FastMCP server
-mcp = FastMCP("c4a-mcp")
-
-# Instantiate CrawlRunner with configs
-crawl_runner = CrawlRunner(
-    default_crawler_config=app_config.crawler,
-    browser_config=browser_config,
-)
-
-# Create preset tools with dependency injection
-# NOTE(REVIEWER): Factory pattern eliminates global state, improving testability
-# and enabling potential future multi-runner scenarios (e.g., per-tenant runners)
-crawl_deep, crawl_deep_smart, scrape_page = create_preset_tools(crawl_runner)
+# Initialize FastMCP server with lifespan
+mcp = FastMCP(name="c4a-mcp", lifespan=lifespan)
 
 
 # NOTE(REVIEWER): Tool signature matches PRD-F001 requirements.
 # FastMCP will automatically generate MCP tool schema from function signature.
-@mcp.tool()
-async def runner(url: str, script: str | None = None, config: dict | None = None) -> str:
+@mcp.tool
+async def runner(
+    url: str, script: str | None = None, config: dict | None = None, ctx: Context | None = None
+) -> str:
     """
     Executes a web crawl session with optional interaction script and configuration.
 
@@ -311,6 +357,16 @@ async def runner(url: str, script: str | None = None, config: dict | None = None
     Always check the `"error"` field in the response. If error is not `None`, markdown will be empty.
     """
     try:
+        # Access crawl_runner from lifespan state via Context
+        if ctx is None:
+            raise ValueError("Context is required for runner tool")
+        crawl_runner = ctx.get_state("crawl_runner")
+        if crawl_runner is None:
+            raise ValueError(
+                "crawl_runner not found in context state. "
+                "Ensure the server lifespan properly initializes crawl_runner."
+            )
+
         # Validate inputs using RunnerInput model
         # Pydantic will handle validation and type coercion
         runner_input = RunnerInput(url=url, script=script, config=config)
@@ -342,9 +398,9 @@ async def runner(url: str, script: str | None = None, config: dict | None = None
 
 # Register preset tools
 # NOTE: FastMCP automatically generates MCP tool schemas from function signatures
-mcp.tool()(crawl_deep)
-mcp.tool()(crawl_deep_smart)
-mcp.tool()(scrape_page)
+mcp.tool(crawl_deep)
+mcp.tool(crawl_deep_smart)
+mcp.tool(scrape_page)
 
 
 def serve():

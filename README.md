@@ -4,6 +4,75 @@ Model Context Protocol (MCP) server for web interaction using `crawl4ai`.
 
 This project aims to provide AI agents with advanced web browsing and data extraction capabilities via the MCP `runner` tool.
 
+## Quick Install (Cursor)
+
+Install this MCP server in Cursor with one click:
+
+<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=c4a-mcp&config=eyJjb21tYW5kIjogImRvY2tlciIsICJhcmdzIjogWyJydW4iLCAiLWkiLCAiLS1ybSIsICJnaGNyLmlvL2JsZ2h0ci9jNGEtbWNwOmxhdGVzdCJdfQ=="><img src="https://cursor.com/deeplink/mcp-install-dark.png" alt="Add c4a-mcp MCP server to Cursor" style="max-height: 32px;" /></a>
+
+**Note:** Requires Docker to be installed and running. The server will run in a container from `ghcr.io/blghtr/c4a-mcp:latest`.
+
+## MCP Server Installation
+
+### Option 1: One-Click Install (Cursor)
+
+Click the button above to install automatically in Cursor, or use the deeplink:
+
+```
+cursor://anysphere.cursor-deeplink/mcp/install?name=c4a-mcp&config=eyJjb21tYW5kIjogImRvY2tlciIsICJhcmdzIjogWyJydW4iLCAiLWkiLCAiLS1ybSIsICJnaGNyLmlvL2JsZ2h0ci9jNGEtbWNwOmxhdGVzdCJdfQ==
+```
+
+### Option 2: Manual Installation
+
+Add to your `mcp.json` file (typically located at `~/.cursor/mcp.json` or `%APPDATA%\Cursor\User\mcp.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "c4a-mcp": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "ghcr.io/blghtr/c4a-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+**With environment variables** (for LLM-based extraction):
+
+```json
+{
+  "mcpServers": {
+    "c4a-mcp": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e", "OPENAI_API_KEY",
+        "-e", "GEMINI_API_KEY",
+        "ghcr.io/blghtr/c4a-mcp:latest"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "your-key-here",
+        "GEMINI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+**Requirements:**
+- Docker must be installed and running
+- For private repositories, authenticate with GitHub Container Registry:
+  ```bash
+  echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+  ```
+
 ## Development Setup
 
 ### Prerequisites

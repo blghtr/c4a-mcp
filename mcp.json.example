@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "c4a-mcp": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "ghcr.io/blghtr/c4a-mcp:latest"
+      ]
+    }
+  }
+}
+
+
+
+

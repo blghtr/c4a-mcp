@@ -13,13 +13,14 @@ This module provides high-level tools for common web crawling scenarios:
 - Deep crawling (BFS and Best-First)
 - Single-page scraping
 
-All tools support extraction strategies (regex, CSS, LLM) and extensive
+All tools support extraction strategies (regex, CSS) and extensive
 parameter customization while maintaining sensible defaults.
 """
 
-from .preset_tools import create_preset_tools
+from .preset_tools import crawl_deep, crawl_deep_smart, scrape_page
 
 __all__ = [
-    "create_preset_tools",
+    "crawl_deep",
+    "crawl_deep_smart",
+    "scrape_page",
 ]
-

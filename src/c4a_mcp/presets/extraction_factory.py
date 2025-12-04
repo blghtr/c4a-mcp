@@ -11,7 +11,7 @@
 Factory for creating extraction strategy instances.
 
 This module creates crawl4ai extraction strategies (RegexExtractionStrategy,
-JsonCssExtractionStrategy, LLMExtractionStrategy) from validated configuration.
+JsonCssExtractionStrategy) from validated configuration.
 """
 
 import logging
@@ -19,23 +19,23 @@ from typing import Any
 
 from crawl4ai import (
     JsonCssExtractionStrategy,
-    LLMConfig,
-    LLMExtractionStrategy,
     RegexExtractionStrategy,
 )
+
+from .models import ExtractionConfig
 
 logger = logging.getLogger(__name__)
 
 
 def create_extraction_strategy(
-    strategy_type: str | None, config: dict[str, Any] | None
+    strategy_type: str | None, config: ExtractionConfig | None
 ) -> Any:  # Returns ExtractionStrategy | None, but avoiding import
     """
     Create an extraction strategy instance from config.
 
     Args:
-        strategy_type: Type of extraction strategy ("regex", "css", "llm", or None)
-        config: Configuration dictionary for the strategy
+        strategy_type: Type of extraction strategy ("regex", "css", or None)
+        config: Configuration Pydantic model for the strategy
 
     Returns:
         ExtractionStrategy instance or None if strategy_type is None
@@ -59,16 +59,27 @@ def create_extraction_strategy(
     )
 
     try:
+        # Validate that config type matches strategy_type
+        from .models import ExtractionConfigRegex, ExtractionConfigCss
+        
         if strategy_type_lower == "regex":
+            if not isinstance(config, ExtractionConfigRegex):
+                raise ValueError(
+                    f"extraction_strategy='regex' requires ExtractionConfigRegex, "
+                    f"got {type(config).__name__}"
+                )
             return _create_regex_strategy(config)
         elif strategy_type_lower == "css":
+            if not isinstance(config, ExtractionConfigCss):
+                raise ValueError(
+                    f"extraction_strategy='css' requires ExtractionConfigCss, "
+                    f"got {type(config).__name__}"
+                )
             return _create_css_strategy(config)
-        elif strategy_type_lower == "llm":
-            return _create_llm_strategy(config)
         else:
             raise ValueError(
                 f"Unsupported extraction_strategy: {strategy_type}. "
-                "Supported: 'regex', 'css', 'llm'"
+                "Supported: 'regex', 'css'"
             )
     except ImportError as e:
         logger.error(
@@ -82,17 +93,16 @@ def create_extraction_strategy(
         ) from e
 
 
-def _create_regex_strategy(config: dict[str, Any]) -> Any:
+def _create_regex_strategy(config: ExtractionConfig) -> Any:
     """Create RegexExtractionStrategy from config."""
-    built_in_patterns = config.get("built_in_patterns")
-    custom_patterns = config.get("custom_patterns")
-    input_format = config.get("input_format", "fit_html")
-
-    # Validate: either built_in or custom, not both
-    if built_in_patterns and custom_patterns:
-        raise ValueError("Cannot specify both built_in_patterns and custom_patterns")
-    if not built_in_patterns and not custom_patterns:
-        raise ValueError("Must specify either built_in_patterns or custom_patterns")
+    from .models import ExtractionConfigRegex
+    
+    if not isinstance(config, ExtractionConfigRegex):
+        raise ValueError(f"Expected ExtractionConfigRegex, got {type(config).__name__}")
+    
+    built_in_patterns = config.built_in_patterns
+    custom_patterns = config.custom_patterns
+    input_format = config.input_format
 
     # Map string pattern names to RegexExtractionStrategy flags
     if built_in_patterns:
@@ -141,35 +151,14 @@ def _map_pattern_names_to_flags(pattern_names: list[str]) -> int:
     return result
 
 
-def _create_css_strategy(config: dict[str, Any]) -> Any:
+def _create_css_strategy(config: ExtractionConfig) -> Any:
     """Create JsonCssExtractionStrategy from config."""
-    schema = config.get("schema")
-    if not schema:
-        raise ValueError("'schema' required in extraction_strategy_config for 'css' strategy")
+    from .models import ExtractionConfigCss
+    
+    if not isinstance(config, ExtractionConfigCss):
+        raise ValueError(f"Expected ExtractionConfigCss, got {type(config).__name__}")
+    
+    return JsonCssExtractionStrategy(schema=config.extraction_schema)
 
-    return JsonCssExtractionStrategy(schema=schema)
 
-
-def _create_llm_strategy(config: dict[str, Any]) -> Any:
-    """Create LLMExtractionStrategy from config."""
-    provider = config.get("provider")
-    if not provider:
-        raise ValueError("'provider' required in extraction_strategy_config for 'llm' strategy")
-
-    api_token = config.get("api_token")
-    # NOTE(REVIEWER): api_token may contain sensitive data. Consider logging
-    # only presence/absence, not the actual token value. Current implementation
-    # passes token to LLMConfig which should handle it securely.
-    schema = config.get("schema")
-    instruction = config.get("instruction")
-    extraction_type = config.get("extraction_type", "block")
-
-    llm_config = LLMConfig(provider=provider, api_token=api_token)
-
-    return LLMExtractionStrategy(
-        llm_config=llm_config,
-        schema=schema,
-        instruction=instruction,
-        extraction_type=extraction_type,
-    )
 

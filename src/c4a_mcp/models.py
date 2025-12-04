@@ -132,6 +132,9 @@ class RunnerInput(BaseModel):
         All validation logic is centralized in config_models.CrawlerConfigYAML.
         This ensures consistency between YAML configs and tool-level configs.
 
+        If config is a serialized CrawlerRunConfig (from preset tools), skip validation
+        and return as-is. It will be deserialized in CrawlRunner._build_run_config().
+
         Args:
             v: Config dictionary to validate
 
@@ -142,6 +145,12 @@ class RunnerInput(BaseModel):
             ValueError: If config validation fails
         """
         if v is None:
+            return v
+
+        # Check if this is a serialized CrawlerRunConfig from preset tools
+        # Format: {type: "CrawlerRunConfig", params: {...}}
+        if isinstance(v, dict) and "type" in v and v["type"] == "CrawlerRunConfig":
+            # Skip validation - will be deserialized in CrawlRunner._build_run_config()
             return v
 
         # Let CrawlerConfigYAML handle all validation

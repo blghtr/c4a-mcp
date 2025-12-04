@@ -155,7 +155,19 @@ class CrawlRunner:
         # Start with defaults (already includes file overrides from server.py)
         merged = self.default_crawler_config.model_copy()
 
-        # Apply tool-level overrides if provided
+        # Check if config dict contains serialized CrawlerRunConfig (from preset tools)
+        # Format: {type: "CrawlerRunConfig", params: {...}}
+        if tool_config_dict and "type" in tool_config_dict and tool_config_dict["type"] == "CrawlerRunConfig":
+            # Deserialize using CrawlerRunConfig.load()
+            # This handles strategies serialized via to_serializable_dict()
+            logger.debug(
+                "[C4A-MCP | Logic] Deserializing CrawlerRunConfig from preset tools | "
+                "data: {config_type: %s}",
+                tool_config_dict.get("type"),
+            )
+            return CrawlerRunConfig.load(tool_config_dict)
+
+        # Standard path: merge with defaults and create CrawlerRunConfig
         if tool_config_dict:
             logger.debug(
                 "[C4A-MCP | Logic] Applying tool-level config overrides | " "data: {overrides: %s}",
