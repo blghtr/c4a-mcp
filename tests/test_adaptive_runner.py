@@ -39,7 +39,9 @@ def mock_browser_config():
 @pytest.fixture
 def mock_crawler_config():
     """Create a mock CrawlerConfigYAML."""
-    return MagicMock(spec=CrawlerConfigYAML)
+    config = MagicMock(spec=CrawlerConfigYAML)
+    config.timeout = None  # Add timeout attribute
+    return config
 
 
 @pytest.fixture
@@ -79,18 +81,16 @@ def mock_adaptive_crawler(mock_adaptive_result):
 
 # --- Test AdaptiveCrawlRunner.run ---
 @patch("c4a_mcp.adaptive_runner.AsyncWebCrawler")
-@patch("c4a_mcp.adaptive_runner.AdaptiveCrawler")
+@patch("c4a_mcp.adaptive_runner.PatchedAdaptiveCrawler")
 @patch("c4a_mcp.presets.adaptive_factory.create_adaptive_config")
 @patch("contextlib.redirect_stdout")
 @patch("contextlib.redirect_stderr")
-@patch("io.StringIO")
 @pytest.mark.asyncio
 async def test_run_success(
-    mock_stringio,
     mock_redirect_stderr,
     mock_redirect_stdout,
     mock_create_config,
-    mock_adaptive_crawler_class,
+    mock_patched_adaptive_crawler_class,
     mock_async_web_crawler_class,
     adaptive_runner,
     mock_adaptive_crawler,
@@ -99,13 +99,22 @@ async def test_run_success(
     """Test successful adaptive crawl execution."""
     # Setup mocks
     mock_config = MagicMock()
+    mock_config.strategy = "statistical"  # Add strategy attribute
     mock_create_config.return_value = mock_config
     
     mock_crawler = MagicMock()
     mock_async_web_crawler_class.return_value.__aenter__ = AsyncMock(return_value=mock_crawler)
     mock_async_web_crawler_class.return_value.__aexit__ = AsyncMock(return_value=None)
     
-    mock_adaptive_crawler_class.return_value = mock_adaptive_crawler
+    # Ensure mock_adaptive_crawler has strategy attribute for patching
+    mock_adaptive_crawler.strategy = MagicMock()  # Mock strategy object
+    mock_patched_adaptive_crawler_class.return_value = mock_adaptive_crawler
+    
+    # Mock context managers for redirect_stdout/stderr
+    mock_redirect_stdout.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stdout.return_value.__exit__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
     # Create input
     inputs = AdaptiveRunnerInput(
@@ -134,8 +143,10 @@ async def test_run_success(
     assert result.metadata["metrics"]["coverage"] == 0.8
     assert result.metadata["metrics"]["pages_crawled"] == 2
     
-    # Verify AdaptiveCrawler was created and digest was called
-    mock_adaptive_crawler_class.assert_called_once_with(mock_crawler, mock_config)
+    # Verify PatchedAdaptiveCrawler was created and digest was called
+    mock_patched_adaptive_crawler_class.assert_called_once_with(
+        mock_crawler, mock_config, link_preview_timeout=30, page_timeout=60000
+    )
     mock_adaptive_crawler.digest.assert_called_once_with(
         start_url="https://example.com",
         query="test query"
@@ -143,18 +154,23 @@ async def test_run_success(
 
 
 @patch("c4a_mcp.adaptive_runner.AsyncWebCrawler")
-@patch("c4a_mcp.adaptive_runner.AdaptiveCrawler")
+@patch("c4a_mcp.adaptive_runner.PatchedAdaptiveCrawler")
 @patch("c4a_mcp.presets.adaptive_factory.create_adaptive_config")
+@patch("contextlib.redirect_stdout")
+@patch("contextlib.redirect_stderr")
 @pytest.mark.asyncio
 async def test_run_with_string_markdown(
+    mock_redirect_stderr,
+    mock_redirect_stdout,
     mock_create_config,
-    mock_adaptive_crawler_class,
+    mock_patched_adaptive_crawler_class,
     mock_async_web_crawler_class,
     adaptive_runner,
 ):
     """Test handling when markdown is already a string."""
     # Setup mocks
     mock_config = MagicMock()
+    mock_config.strategy = "statistical"  # Add strategy attribute
     mock_create_config.return_value = mock_config
     
     mock_crawler = MagicMock()
@@ -172,7 +188,14 @@ async def test_run_with_string_markdown(
     mock_adaptive.digest = AsyncMock(return_value=mock_result)
     mock_adaptive.confidence = 0.5
     mock_adaptive.metrics = {}
-    mock_adaptive_crawler_class.return_value = mock_adaptive
+    mock_adaptive.strategy = MagicMock()  # Add strategy for patching
+    mock_patched_adaptive_crawler_class.return_value = mock_adaptive
+    
+    # Mock context managers
+    mock_redirect_stdout.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stdout.return_value.__exit__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
     inputs = AdaptiveRunnerInput(
         url="https://example.com",
@@ -187,18 +210,23 @@ async def test_run_with_string_markdown(
 
 
 @patch("c4a_mcp.adaptive_runner.AsyncWebCrawler")
-@patch("c4a_mcp.adaptive_runner.AdaptiveCrawler")
+@patch("c4a_mcp.adaptive_runner.PatchedAdaptiveCrawler")
 @patch("c4a_mcp.presets.adaptive_factory.create_adaptive_config")
+@patch("contextlib.redirect_stdout")
+@patch("contextlib.redirect_stderr")
 @pytest.mark.asyncio
 async def test_run_error_handling(
+    mock_redirect_stderr,
+    mock_redirect_stdout,
     mock_create_config,
-    mock_adaptive_crawler_class,
+    mock_patched_adaptive_crawler_class,
     mock_async_web_crawler_class,
     adaptive_runner,
 ):
     """Test error handling during adaptive crawl."""
     # Setup mocks to raise exception
     mock_config = MagicMock()
+    mock_config.strategy = "statistical"  # Add strategy attribute
     mock_create_config.return_value = mock_config
     
     mock_crawler = MagicMock()
@@ -207,7 +235,14 @@ async def test_run_error_handling(
     
     mock_adaptive = MagicMock()
     mock_adaptive.digest = AsyncMock(side_effect=Exception("Network error: connection failed"))
-    mock_adaptive_crawler_class.return_value = mock_adaptive
+    mock_adaptive.strategy = MagicMock()  # Add strategy for patching
+    mock_patched_adaptive_crawler_class.return_value = mock_adaptive
+    
+    # Mock context managers
+    mock_redirect_stdout.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stdout.return_value.__exit__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
     inputs = AdaptiveRunnerInput(
         url="https://example.com",
@@ -224,17 +259,22 @@ async def test_run_error_handling(
 
 
 @patch("c4a_mcp.adaptive_runner.AsyncWebCrawler")
-@patch("c4a_mcp.adaptive_runner.AdaptiveCrawler")
+@patch("c4a_mcp.adaptive_runner.PatchedAdaptiveCrawler")
 @patch("c4a_mcp.presets.adaptive_factory.create_adaptive_config")
+@patch("contextlib.redirect_stdout")
+@patch("contextlib.redirect_stderr")
 @pytest.mark.asyncio
 async def test_run_timeout_error(
+    mock_redirect_stderr,
+    mock_redirect_stdout,
     mock_create_config,
-    mock_adaptive_crawler_class,
+    mock_patched_adaptive_crawler_class,
     mock_async_web_crawler_class,
     adaptive_runner,
 ):
     """Test timeout error handling."""
     mock_config = MagicMock()
+    mock_config.strategy = "statistical"  # Add strategy attribute
     mock_create_config.return_value = mock_config
     
     mock_crawler = MagicMock()
@@ -243,7 +283,14 @@ async def test_run_timeout_error(
     
     mock_adaptive = MagicMock()
     mock_adaptive.digest = AsyncMock(side_effect=TimeoutError("Timeout after 60 seconds"))
-    mock_adaptive_crawler_class.return_value = mock_adaptive
+    mock_adaptive.strategy = MagicMock()  # Add strategy for patching
+    mock_patched_adaptive_crawler_class.return_value = mock_adaptive
+    
+    # Mock context managers
+    mock_redirect_stdout.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stdout.return_value.__exit__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
     inputs = AdaptiveRunnerInput(
         url="https://example.com",
@@ -258,17 +305,22 @@ async def test_run_timeout_error(
 
 
 @patch("c4a_mcp.adaptive_runner.AsyncWebCrawler")
-@patch("c4a_mcp.adaptive_runner.AdaptiveCrawler")
+@patch("c4a_mcp.adaptive_runner.PatchedAdaptiveCrawler")
 @patch("c4a_mcp.presets.adaptive_factory.create_adaptive_config")
+@patch("contextlib.redirect_stdout")
+@patch("contextlib.redirect_stderr")
 @pytest.mark.asyncio
 async def test_run_embedding_error(
+    mock_redirect_stderr,
+    mock_redirect_stdout,
     mock_create_config,
-    mock_adaptive_crawler_class,
+    mock_patched_adaptive_crawler_class,
     mock_async_web_crawler_class,
     adaptive_runner,
 ):
     """Test embedding/LLM error handling."""
     mock_config = MagicMock()
+    mock_config.strategy = "embedding"  # Add strategy attribute
     mock_create_config.return_value = mock_config
     
     mock_crawler = MagicMock()
@@ -277,7 +329,14 @@ async def test_run_embedding_error(
     
     mock_adaptive = MagicMock()
     mock_adaptive.digest = AsyncMock(side_effect=Exception("Embedding model not found"))
-    mock_adaptive_crawler_class.return_value = mock_adaptive
+    mock_adaptive.strategy = MagicMock()  # Add strategy for patching
+    mock_patched_adaptive_crawler_class.return_value = mock_adaptive
+    
+    # Mock context managers
+    mock_redirect_stdout.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stdout.return_value.__exit__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
+    mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
     inputs = AdaptiveRunnerInput(
         url="https://example.com",
@@ -322,28 +381,36 @@ async def test_run_invalid_adaptive_params_type(adaptive_runner):
     assert "adaptive_config_params must be a dict" in result.error
 
 
-# --- Test PatchedAdaptiveCrawler._get_embedding_llm_config_dict ---
+# --- Test PatchedEmbeddingStrategy._get_embedding_llm_config_dict ---
 def test_get_embedding_llm_config_dict_none_config():
-    """Test that _get_embedding_llm_config_dict returns None when embedding_llm_config is None."""
-    from c4a_mcp.adaptive_runner import PatchedAdaptiveCrawler
+    """Test that patched _get_embedding_llm_config_dict returns None when embedding_llm_config is None."""
+    from c4a_mcp.adaptive_runner import PatchedEmbeddingStrategy
+    from crawl4ai.adaptive_crawler import EmbeddingStrategy
+    
+    # Create an EmbeddingStrategy instance
+    strategy = EmbeddingStrategy()
     
     # Create a mock config with embedding_llm_config = None
     mock_config = MagicMock()
     mock_config.embedding_llm_config = None
     mock_config._embedding_llm_config_dict = None
+    strategy.config = mock_config
     
-    # Create PatchedAdaptiveCrawler instance
-    crawler = PatchedAdaptiveCrawler.__new__(PatchedAdaptiveCrawler)
-    crawler.config = mock_config
+    # Patch the strategy
+    PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
     
     # Test: should return None when embedding_llm_config is None
-    result = crawler._get_embedding_llm_config_dict()
+    result = strategy._get_embedding_llm_config_dict()
     assert result is None
 
 
 def test_get_embedding_llm_config_dict_no_api_key():
-    """Test that _get_embedding_llm_config_dict returns None when config dict has no API key."""
-    from c4a_mcp.adaptive_runner import PatchedAdaptiveCrawler
+    """Test that patched _get_embedding_llm_config_dict returns None when config dict has no API key."""
+    from c4a_mcp.adaptive_runner import PatchedEmbeddingStrategy
+    from crawl4ai.adaptive_crawler import EmbeddingStrategy
+    
+    # Create an EmbeddingStrategy instance
+    strategy = EmbeddingStrategy()
     
     # Create a mock config with config dict but no API key
     mock_config = MagicMock()
@@ -352,19 +419,23 @@ def test_get_embedding_llm_config_dict_no_api_key():
         'provider': 'openai/text-embedding-3-small',
         'api_token': None,  # No API key
     }
+    strategy.config = mock_config
     
-    # Create PatchedAdaptiveCrawler instance
-    crawler = PatchedAdaptiveCrawler.__new__(PatchedAdaptiveCrawler)
-    crawler.config = mock_config
+    # Patch the strategy
+    PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
     
     # Test: should return None when API key is missing/None
-    result = crawler._get_embedding_llm_config_dict()
+    result = strategy._get_embedding_llm_config_dict()
     assert result is None
 
 
 def test_get_embedding_llm_config_dict_empty_api_key():
-    """Test that _get_embedding_llm_config_dict returns None when API key is empty string."""
-    from c4a_mcp.adaptive_runner import PatchedAdaptiveCrawler
+    """Test that patched _get_embedding_llm_config_dict returns None when API key is empty string."""
+    from c4a_mcp.adaptive_runner import PatchedEmbeddingStrategy
+    from crawl4ai.adaptive_crawler import EmbeddingStrategy
+    
+    # Create an EmbeddingStrategy instance
+    strategy = EmbeddingStrategy()
     
     # Create a mock config with empty API key
     mock_config = MagicMock()
@@ -373,19 +444,23 @@ def test_get_embedding_llm_config_dict_empty_api_key():
         'provider': 'openai/text-embedding-3-small',
         'api_token': '',  # Empty string
     }
+    strategy.config = mock_config
     
-    # Create PatchedAdaptiveCrawler instance
-    crawler = PatchedAdaptiveCrawler.__new__(PatchedAdaptiveCrawler)
-    crawler.config = mock_config
+    # Patch the strategy
+    PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
     
     # Test: should return None when API key is empty
-    result = crawler._get_embedding_llm_config_dict()
+    result = strategy._get_embedding_llm_config_dict()
     assert result is None
 
 
 def test_get_embedding_llm_config_dict_valid_api_key():
-    """Test that _get_embedding_llm_config_dict returns config when valid API key is present."""
-    from c4a_mcp.adaptive_runner import PatchedAdaptiveCrawler
+    """Test that patched _get_embedding_llm_config_dict returns config when valid API key is present."""
+    from c4a_mcp.adaptive_runner import PatchedEmbeddingStrategy
+    from crawl4ai.adaptive_crawler import EmbeddingStrategy
+    
+    # Create an EmbeddingStrategy instance
+    strategy = EmbeddingStrategy()
     
     # Create a mock config with valid API key
     mock_config = MagicMock()
@@ -395,20 +470,24 @@ def test_get_embedding_llm_config_dict_valid_api_key():
         'api_token': 'sk-valid-key-12345',
     }
     mock_config._embedding_llm_config_dict = config_dict
+    strategy.config = mock_config
     
-    # Create PatchedAdaptiveCrawler instance
-    crawler = PatchedAdaptiveCrawler.__new__(PatchedAdaptiveCrawler)
-    crawler.config = mock_config
+    # Patch the strategy
+    PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
     
     # Test: should return config dict when valid API key is present
-    result = crawler._get_embedding_llm_config_dict()
+    result = strategy._get_embedding_llm_config_dict()
     assert result == config_dict
     assert result['api_token'] == 'sk-valid-key-12345'
 
 
 def test_get_embedding_llm_config_dict_api_key_variant():
-    """Test that _get_embedding_llm_config_dict checks both api_token and api_key fields."""
-    from c4a_mcp.adaptive_runner import PatchedAdaptiveCrawler
+    """Test that patched _get_embedding_llm_config_dict checks both api_token and api_key fields."""
+    from c4a_mcp.adaptive_runner import PatchedEmbeddingStrategy
+    from crawl4ai.adaptive_crawler import EmbeddingStrategy
+    
+    # Create an EmbeddingStrategy instance
+    strategy = EmbeddingStrategy()
     
     # Test with api_key instead of api_token
     mock_config = MagicMock()
@@ -418,26 +497,30 @@ def test_get_embedding_llm_config_dict_api_key_variant():
         'api_key': 'sk-valid-key-67890',  # Using api_key instead of api_token
     }
     mock_config._embedding_llm_config_dict = config_dict
+    strategy.config = mock_config
     
-    # Create PatchedAdaptiveCrawler instance
-    crawler = PatchedAdaptiveCrawler.__new__(PatchedAdaptiveCrawler)
-    crawler.config = mock_config
+    # Patch the strategy
+    PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
     
     # Test: should return config dict when valid API key is present (using api_key field)
-    result = crawler._get_embedding_llm_config_dict()
+    result = strategy._get_embedding_llm_config_dict()
     assert result == config_dict
     assert result['api_key'] == 'sk-valid-key-67890'
 
 
 def test_get_embedding_llm_config_dict_no_config():
-    """Test that _get_embedding_llm_config_dict returns None when config is None."""
-    from c4a_mcp.adaptive_runner import PatchedAdaptiveCrawler
+    """Test that patched _get_embedding_llm_config_dict returns None when config is None."""
+    from c4a_mcp.adaptive_runner import PatchedEmbeddingStrategy
+    from crawl4ai.adaptive_crawler import EmbeddingStrategy
     
-    # Create PatchedAdaptiveCrawler instance without config
-    crawler = PatchedAdaptiveCrawler.__new__(PatchedAdaptiveCrawler)
-    crawler.config = None
+    # Create an EmbeddingStrategy instance
+    strategy = EmbeddingStrategy()
+    strategy.config = None
+    
+    # Patch the strategy
+    PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
     
     # Test: should return None when config is None
-    result = crawler._get_embedding_llm_config_dict()
+    result = strategy._get_embedding_llm_config_dict()
     assert result is None
 

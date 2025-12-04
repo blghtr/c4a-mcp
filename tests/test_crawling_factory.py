@@ -137,7 +137,8 @@ def test_create_best_first_strategy(mock_scorer_class, mock_best_first_class):
     result = _create_best_first_strategy(params)
 
     assert result == mock_strategy
-    mock_scorer_class.assert_called_once_with(keywords=["test", "example"], weight=0.7)
+    # KeywordRelevanceScorer is called with keywords as positional arg
+    mock_scorer_class.assert_called_once_with(["test", "example"], weight=0.7)
     mock_best_first_class.assert_called_once_with(
         max_depth=2,
         max_pages=25,

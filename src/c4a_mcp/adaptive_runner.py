@@ -363,6 +363,10 @@ class AdaptiveCrawlRunner:
                                     self.logger.info(
                                         f"[C4A-MCP | Logic | Adaptive] {self.prefix}: {line.strip()}"
                                     )
+                
+                def getvalue(self):
+                    """Override getvalue to ensure it works correctly."""
+                    return super().getvalue()
             
             stdout_capture = LoggingStringIO(logger, "stdout")
             stderr_capture = LoggingStringIO(logger, "stderr")
