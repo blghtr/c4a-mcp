@@ -7,6 +7,8 @@
 # :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]. Refactored to parameterized configuration to avoid serialization issues [ARCH-010]"
 # LLM:END
 
+import contextlib
+import io
 import logging
 import traceback
 from datetime import datetime
@@ -98,29 +100,70 @@ class CrawlRunner:
                     captured_stderr[:500],  # Limit log size
                 )
 
-                # Process result into RunnerOutput
-                # CrawlResult has metadata dict for title, status_code directly, no timestamp
-                markdown_content = ""
-                if crawl_result.markdown:
-                    # markdown can be str or MarkdownGenerationResult
-                    if isinstance(crawl_result.markdown, str):
-                        markdown_content = crawl_result.markdown
-                    else:
-                        # MarkdownGenerationResult has raw_markdown attribute
-                        markdown_content = getattr(crawl_result.markdown, "raw_markdown", "")
-
-                return RunnerOutput(
-                    markdown=markdown_content,
-                    metadata={
-                        "url": crawl_result.url,
-                        "title": (
-                            crawl_result.metadata.get("title") if crawl_result.metadata else None
-                        ),
-                        "timestamp": datetime.now().isoformat(),
-                        "status": crawl_result.status_code,
-                    },
-                    error=None,
+            # Process result into RunnerOutput
+            # CrawlResult has metadata dict for title, status_code directly, no timestamp
+            markdown_content = ""
+            
+            # Diagnostic logging for markdown extraction
+            logger.debug(
+                "[C4A-MCP | Logic] Extracting markdown | "
+                "data: {has_markdown: %s, markdown_is_none: %s, markdown_type: %s}",
+                hasattr(crawl_result, "markdown"),
+                not hasattr(crawl_result, "markdown") or crawl_result.markdown is None,
+                type(getattr(crawl_result, "markdown", None)).__name__ if hasattr(crawl_result, "markdown") else "N/A",
+            )
+            
+            if crawl_result.markdown:
+                # markdown can be str or MarkdownGenerationResult
+                if isinstance(crawl_result.markdown, str):
+                    markdown_content = crawl_result.markdown
+                    logger.debug(
+                        "[C4A-MCP | Logic] Markdown is string | "
+                        "data: {length: %d, preview: %s}",
+                        len(markdown_content),
+                        markdown_content[:200] if markdown_content else "",
+                    )
+                else:
+                    # MarkdownGenerationResult has raw_markdown attribute
+                    markdown_obj = crawl_result.markdown
+                    logger.debug(
+                        "[C4A-MCP | Logic] Markdown is object | "
+                        "data: {type: %s, has_raw_markdown: %s, has_fit_markdown: %s}",
+                        type(markdown_obj).__name__,
+                        hasattr(markdown_obj, "raw_markdown"),
+                        hasattr(markdown_obj, "fit_markdown"),
+                    )
+                    markdown_content = getattr(markdown_obj, "raw_markdown", "")
+                    if not markdown_content:
+                        markdown_content = getattr(markdown_obj, "fit_markdown", "")
+                    logger.debug(
+                        "[C4A-MCP | Logic] Extracted markdown from object | "
+                        "data: {length: %d, preview: %s}",
+                        len(markdown_content) if markdown_content else 0,
+                        markdown_content[:200] if markdown_content else "",
+                    )
+            else:
+                logger.warning(
+                    "[C4A-MCP | Logic] No markdown found in crawl_result | "
+                    "data: {url: %s, status: %s, has_html: %s, html_length: %d}",
+                    crawl_result.url,
+                    crawl_result.status_code,
+                    hasattr(crawl_result, "html"),
+                    len(crawl_result.html) if hasattr(crawl_result, "html") and crawl_result.html else 0,
                 )
+
+            return RunnerOutput(
+                markdown=markdown_content,
+                metadata={
+                    "url": crawl_result.url,
+                    "title": (
+                        crawl_result.metadata.get("title") if crawl_result.metadata else None
+                    ),
+                    "timestamp": datetime.now().isoformat(),
+                    "status": crawl_result.status_code,
+                },
+                error=None,
+            )
         except Exception as e:
             # Catch any unexpected errors and try to categorize them
             error_message = str(e).lower()

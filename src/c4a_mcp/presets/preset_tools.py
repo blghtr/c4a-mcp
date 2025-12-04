@@ -18,13 +18,19 @@ These tools provide high-level interfaces for common crawling scenarios:
 All tools use Context injection to access CrawlRunner from lifespan state.
 """
 
+import json
 import logging
 from typing import Any
 
 from fastmcp import Context
 
+logger = logging.getLogger(__name__)
+
+from ..adaptive_runner import AdaptiveCrawlRunner, AdaptiveRunnerInput
 from ..models import RunnerInput
 from .models import (
+    AdaptiveEmbeddingInput,
+    AdaptiveStatisticalInput,
     CrawlDeepSmartInput,
     DeepCrawlPresetInput,
     ExtractionConfig,
@@ -151,6 +157,227 @@ async def crawl_deep(
     )
     result = await crawl_runner.run(runner_input)
 
+    return result.model_dump_json()
+
+
+async def adaptive_crawl_statistical(
+    url: str,
+    query: str,
+    confidence_threshold: float = 0.7,
+    max_pages: int = 20,
+    top_k_links: int = 3,
+    min_gain_threshold: float = 0.1,
+    config: dict[str, Any] | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """
+    Perform adaptive crawling using statistical strategy.
+    
+    Uses term-based analysis and information theory to determine when
+    sufficient information has been gathered. Fast, efficient, no external
+    dependencies. Best for well-defined queries with specific terminology.
+    
+    Args:
+        url: Starting URL for the adaptive crawl
+        query: Query string for relevance-based crawling (required)
+        confidence_threshold: Stop when confidence reaches this threshold (0.0-1.0, default: 0.7)
+        max_pages: Maximum number of pages to crawl (default: 20)
+        top_k_links: Number of links to follow per page (default: 3)
+        min_gain_threshold: Minimum expected information gain to continue (default: 0.1)
+        config: Additional configuration parameters (timeout, css_selector, etc.)
+        ctx: FastMCP Context (injected automatically)
+    
+    Returns:
+        JSON string with RunnerOutput structure (markdown, metadata with confidence/metrics, error)
+    """
+    # Access adaptive_crawl_runner from lifespan state
+    if ctx is None:
+        raise ValueError("Context is required for preset tools")
+    adaptive_runner = ctx.get_state("adaptive_crawl_runner")
+    if adaptive_runner is None:
+        raise ValueError(
+            "adaptive_crawl_runner not found in context state. "
+            "Ensure the server lifespan properly initializes adaptive_crawl_runner."
+        )
+    
+    # Validate input
+    input_data = AdaptiveStatisticalInput(
+        url=url,
+        query=query,
+        confidence_threshold=confidence_threshold,
+        max_pages=max_pages,
+        top_k_links=top_k_links,
+        min_gain_threshold=min_gain_threshold,
+        **(config or {}),
+    )
+    
+    # Prepare adaptive config parameters
+    adaptive_config_params = {
+        "confidence_threshold": input_data.confidence_threshold,
+        "max_pages": input_data.max_pages,
+        "top_k_links": input_data.top_k_links,
+        "min_gain_threshold": input_data.min_gain_threshold,
+    }
+    
+    # Build config dict with strategy and adaptive config params
+    # Include timeout and other common config parameters
+    config_dict: dict[str, Any] = {
+        "strategy": "statistical",
+        "adaptive_config_params": adaptive_config_params,
+    }
+    
+    # Pass through timeout and other config parameters if provided
+    if input_data.timeout is not None:
+        config_dict["timeout"] = int(input_data.timeout)
+    
+    # Execute via AdaptiveCrawlRunner
+    runner_input = AdaptiveRunnerInput(
+        url=url, query=query, config=config_dict
+    )
+    result = await adaptive_runner.run(runner_input)
+    
+    return result.model_dump_json()
+
+
+async def adaptive_crawl_embedding(
+    url: str,
+    query: str,
+    confidence_threshold: float = 0.7,
+    max_pages: int = 20,
+    top_k_links: int = 3,
+    min_gain_threshold: float = 0.1,
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    embedding_llm_config: dict[str, Any] | None = None,
+    n_query_variations: int = 10,
+    embedding_coverage_radius: float = 0.2,
+    embedding_k_exp: float = 3.0,
+    embedding_min_relative_improvement: float = 0.1,
+    embedding_validation_min_score: float = 0.3,
+    embedding_min_confidence_threshold: float = 0.1,
+    embedding_overlap_threshold: float = 0.85,
+    embedding_quality_min_confidence: float = 0.7,
+    embedding_quality_max_confidence: float = 0.95,
+    config: dict[str, Any] | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """
+    Perform adaptive crawling using embedding strategy.
+    
+    Uses semantic embeddings for deeper understanding. Captures meaning
+    beyond exact term matches. Requires embedding model or LLM API.
+    Best for complex queries, ambiguous topics, conceptual understanding.
+    
+    Args:
+        url: Starting URL for the adaptive crawl
+        query: Query string for relevance-based crawling (required)
+        confidence_threshold: Stop when confidence reaches this threshold (0.0-1.0, default: 0.7)
+        max_pages: Maximum number of pages to crawl (default: 20)
+        top_k_links: Number of links to follow per page (default: 3)
+        min_gain_threshold: Minimum expected information gain to continue (default: 0.1)
+        embedding_model: Embedding model identifier (default: sentence-transformers/all-MiniLM-L6-v2)
+        embedding_llm_config: LLM config for query expansion: {provider: str, api_token: str, ...}
+        n_query_variations: Number of query variations to generate (default: 10)
+        embedding_coverage_radius: Distance threshold for semantic coverage (default: 0.2)
+        embedding_k_exp: Exponential decay factor for coverage (default: 3.0)
+        embedding_min_relative_improvement: Minimum relative improvement to continue (default: 0.1)
+        embedding_validation_min_score: Minimum validation score threshold (default: 0.3)
+        embedding_min_confidence_threshold: Below this confidence = irrelevant (default: 0.1)
+        embedding_overlap_threshold: Similarity threshold for deduplication (default: 0.85)
+        embedding_quality_min_confidence: Minimum confidence for quality display (default: 0.7)
+        embedding_quality_max_confidence: Maximum confidence for quality display (default: 0.95)
+        config: Additional configuration parameters (timeout, css_selector, etc.)
+        ctx: FastMCP Context (injected automatically)
+    
+    Returns:
+        JSON string with RunnerOutput structure (markdown, metadata with confidence/metrics, error)
+    """
+    # Check if sentence-transformers is available when using local embeddings
+    if embedding_llm_config is None:
+        try:
+            import sentence_transformers  # noqa: F401
+            logger.info(
+                "[C4A-MCP | Presets | Tools] sentence-transformers available, "
+                "will use local embeddings. First model load may take time."
+            )
+        except ImportError:
+            return json.dumps({
+                "markdown": "",
+                "metadata": {},
+                "error": (
+                    "sentence-transformers is required for local embeddings. "
+                    "Install it with: uv pip install --group embeddings or "
+                    "pip install sentence-transformers"
+                )
+            })
+    
+    # Access adaptive_crawl_runner from lifespan state
+    if ctx is None:
+        raise ValueError("Context is required for preset tools")
+    adaptive_runner = ctx.get_state("adaptive_crawl_runner")
+    if adaptive_runner is None:
+        raise ValueError(
+            "adaptive_crawl_runner not found in context state. "
+            "Ensure the server lifespan properly initializes adaptive_crawl_runner."
+        )
+    
+    # Validate input
+    input_data = AdaptiveEmbeddingInput(
+        url=url,
+        query=query,
+        confidence_threshold=confidence_threshold,
+        max_pages=max_pages,
+        top_k_links=top_k_links,
+        min_gain_threshold=min_gain_threshold,
+        embedding_model=embedding_model,
+        embedding_llm_config=embedding_llm_config,
+        n_query_variations=n_query_variations,
+        embedding_coverage_radius=embedding_coverage_radius,
+        embedding_k_exp=embedding_k_exp,
+        embedding_min_relative_improvement=embedding_min_relative_improvement,
+        embedding_validation_min_score=embedding_validation_min_score,
+        embedding_min_confidence_threshold=embedding_min_confidence_threshold,
+        embedding_overlap_threshold=embedding_overlap_threshold,
+        embedding_quality_min_confidence=embedding_quality_min_confidence,
+        embedding_quality_max_confidence=embedding_quality_max_confidence,
+        **(config or {}),
+    )
+    
+    # Prepare adaptive config parameters
+    adaptive_config_params = {
+        "confidence_threshold": input_data.confidence_threshold,
+        "max_pages": input_data.max_pages,
+        "top_k_links": input_data.top_k_links,
+        "min_gain_threshold": input_data.min_gain_threshold,
+        "embedding_model": input_data.embedding_model,
+        "embedding_llm_config": input_data.embedding_llm_config,
+        "n_query_variations": input_data.n_query_variations,
+        "embedding_coverage_radius": input_data.embedding_coverage_radius,
+        "embedding_k_exp": input_data.embedding_k_exp,
+        "embedding_min_relative_improvement": input_data.embedding_min_relative_improvement,
+        "embedding_validation_min_score": input_data.embedding_validation_min_score,
+        "embedding_min_confidence_threshold": input_data.embedding_min_confidence_threshold,
+        "embedding_overlap_threshold": input_data.embedding_overlap_threshold,
+        "embedding_quality_min_confidence": input_data.embedding_quality_min_confidence,
+        "embedding_quality_max_confidence": input_data.embedding_quality_max_confidence,
+    }
+    
+    # Build config dict with strategy and adaptive config params
+    # Include timeout and other common config parameters
+    config_dict: dict[str, Any] = {
+        "strategy": "embedding",
+        "adaptive_config_params": adaptive_config_params,
+    }
+    
+    # Pass through timeout and other config parameters if provided
+    if input_data.timeout is not None:
+        config_dict["timeout"] = int(input_data.timeout)
+    
+    # Execute via AdaptiveCrawlRunner
+    runner_input = AdaptiveRunnerInput(
+        url=url, query=query, config=config_dict
+    )
+    result = await adaptive_runner.run(runner_input)
+    
     return result.model_dump_json()
 
 

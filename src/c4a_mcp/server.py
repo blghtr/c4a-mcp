@@ -18,8 +18,15 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 from .config_models import AppConfig
 from .logging_config import setup_logging
+from .adaptive_runner import AdaptiveCrawlRunner
 from .models import RunnerInput, RunnerOutput
-from .presets.preset_tools import crawl_deep, crawl_deep_smart, scrape_page
+from .presets.preset_tools import (
+    adaptive_crawl_embedding,
+    adaptive_crawl_statistical,
+    crawl_deep,
+    crawl_deep_smart,
+    scrape_page,
+)
 from .runner_tool import CrawlRunner
 
 # Configure logging
@@ -139,8 +146,20 @@ async def lifespan(_mcp_server: FastMCP):
 
     logger.info("[C4A-MCP | Server] CrawlRunner initialized")
 
+    # Instantiate AdaptiveCrawlRunner with same configs
+    adaptive_crawl_runner = AdaptiveCrawlRunner(
+        default_crawler_config=app_config.crawler,
+        browser_config=browser_config,
+    )
+
+    logger.info("[C4A-MCP | Server] AdaptiveCrawlRunner initialized")
+
     # Store state globally for middleware access
-    _lifespan_state = {"crawl_runner": crawl_runner, "app_config": app_config}
+    _lifespan_state = {
+        "crawl_runner": crawl_runner,
+        "adaptive_crawl_runner": adaptive_crawl_runner,
+        "app_config": app_config,
+    }
 
     try:
         # Yield state to make available during server runtime
@@ -426,6 +445,8 @@ async def runner(
 mcp.tool(crawl_deep)
 mcp.tool(crawl_deep_smart)
 mcp.tool(scrape_page)
+mcp.tool(adaptive_crawl_statistical)
+mcp.tool(adaptive_crawl_embedding)
 
 
 def serve():

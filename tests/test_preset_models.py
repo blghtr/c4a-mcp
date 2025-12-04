@@ -17,6 +17,8 @@ import pytest
 from pydantic import ValidationError
 
 from c4a_mcp.presets.models import (
+    AdaptiveEmbeddingInput,
+    AdaptiveStatisticalInput,
     CrawlDeepSmartInput,
     DeepCrawlPresetInput,
     ExtractionConfigCss,
@@ -190,6 +192,167 @@ def test_extraction_config_css():
     config = ExtractionConfigCss(type="css", extraction_schema=schema)
     assert config.type == "css"
     assert config.extraction_schema == schema
+
+
+# --- Test AdaptiveCrawlInput ---
+def test_adaptive_crawl_input_valid():
+    """Test valid AdaptiveCrawlInput."""
+    input_data = AdaptiveStatisticalInput(
+        url="https://example.com",
+        query="test query",
+        confidence_threshold=0.8,
+        max_pages=30,
+        top_k_links=5,
+        min_gain_threshold=0.15,
+    )
+    assert input_data.url == "https://example.com"
+    assert input_data.query == "test query"
+    assert input_data.confidence_threshold == 0.8
+    assert input_data.max_pages == 30
+    assert input_data.top_k_links == 5
+    assert input_data.min_gain_threshold == 0.15
+
+
+def test_adaptive_crawl_input_defaults():
+    """Test AdaptiveCrawlInput with default values."""
+    input_data = AdaptiveStatisticalInput(
+        url="https://example.com",
+        query="test query",
+    )
+    assert input_data.confidence_threshold == 0.7
+    assert input_data.max_pages == 20
+    assert input_data.top_k_links == 3
+    assert input_data.min_gain_threshold == 0.1
+
+
+def test_adaptive_crawl_input_invalid_url():
+    """Test AdaptiveCrawlInput with invalid URL."""
+    with pytest.raises(ValidationError) as exc_info:
+        AdaptiveStatisticalInput(url="not-a-url", query="test")
+    assert "URL must use http:// or https://" in str(exc_info.value)
+
+
+def test_adaptive_crawl_input_empty_query():
+    """Test AdaptiveCrawlInput with empty query."""
+    with pytest.raises(ValidationError) as exc_info:
+        AdaptiveStatisticalInput(url="https://example.com", query="")
+    assert "query cannot be empty" in str(exc_info.value)
+
+    with pytest.raises(ValidationError):
+        AdaptiveStatisticalInput(url="https://example.com", query="   ")
+
+
+def test_adaptive_crawl_input_query_trimmed():
+    """Test that query is trimmed of whitespace."""
+    input_data = AdaptiveStatisticalInput(
+        url="https://example.com",
+        query="  test query  ",
+    )
+    assert input_data.query == "test query"
+
+
+def test_adaptive_crawl_input_invalid_confidence_threshold():
+    """Test AdaptiveCrawlInput with invalid confidence_threshold."""
+    with pytest.raises(ValidationError):
+        AdaptiveStatisticalInput(
+            url="https://example.com",
+            query="test",
+            confidence_threshold=1.5,  # > 1.0
+        )
+
+    with pytest.raises(ValidationError):
+        AdaptiveStatisticalInput(
+            url="https://example.com",
+            query="test",
+            confidence_threshold=-0.1,  # < 0.0
+        )
+
+
+def test_adaptive_crawl_input_invalid_max_pages():
+    """Test AdaptiveCrawlInput with invalid max_pages."""
+    with pytest.raises(ValidationError):
+        AdaptiveStatisticalInput(
+            url="https://example.com",
+            query="test",
+            max_pages=0,  # <= 0
+        )
+
+
+def test_adaptive_crawl_input_invalid_top_k_links():
+    """Test AdaptiveCrawlInput with invalid top_k_links."""
+    with pytest.raises(ValidationError):
+        AdaptiveStatisticalInput(
+            url="https://example.com",
+            query="test",
+            top_k_links=0,  # <= 0
+        )
+
+
+# --- Test AdaptiveStatisticalInput ---
+def test_adaptive_statistical_input_valid():
+    """Test valid AdaptiveStatisticalInput."""
+    input_data = AdaptiveStatisticalInput(
+        url="https://example.com",
+        query="test query",
+    )
+    assert isinstance(input_data, AdaptiveStatisticalInput)
+
+
+# --- Test AdaptiveEmbeddingInput ---
+def test_adaptive_embedding_input_valid():
+    """Test valid AdaptiveEmbeddingInput."""
+    input_data = AdaptiveEmbeddingInput(
+        url="https://example.com",
+        query="test query",
+        embedding_model="custom-model",
+        n_query_variations=15,
+    )
+    assert input_data.embedding_model == "custom-model"
+    assert input_data.n_query_variations == 15
+    assert input_data.embedding_llm_config is None
+
+
+def test_adaptive_embedding_input_defaults():
+    """Test AdaptiveEmbeddingInput with default values."""
+    input_data = AdaptiveEmbeddingInput(
+        url="https://example.com",
+        query="test query",
+    )
+    assert input_data.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert input_data.n_query_variations == 10
+    assert input_data.embedding_coverage_radius == 0.2
+    assert input_data.embedding_k_exp == 3.0
+
+
+def test_adaptive_embedding_input_with_llm_config():
+    """Test AdaptiveEmbeddingInput with LLM config."""
+    llm_config = {
+        "provider": "openai/gpt-4",
+        "api_token": "test-token",
+    }
+    input_data = AdaptiveEmbeddingInput(
+        url="https://example.com",
+        query="test query",
+        embedding_llm_config=llm_config,
+    )
+    assert input_data.embedding_llm_config == llm_config
+
+
+def test_adaptive_embedding_input_invalid_embedding_params():
+    """Test AdaptiveEmbeddingInput with invalid embedding parameters."""
+    with pytest.raises(ValidationError):
+        AdaptiveEmbeddingInput(
+            url="https://example.com",
+            query="test",
+            n_query_variations=0,  # <= 0
+        )
+
+    with pytest.raises(ValidationError):
+        AdaptiveEmbeddingInput(
+            url="https://example.com",
+            query="test",
+            embedding_validation_min_score=1.5,  # > 1.0
+        )
 
 
 

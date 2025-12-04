@@ -17,10 +17,18 @@ All tools support extraction strategies (regex, CSS) and extensive
 parameter customization while maintaining sensible defaults.
 """
 
-from .preset_tools import crawl_deep, crawl_deep_smart, scrape_page
+from .preset_tools import (
+    adaptive_crawl_embedding,
+    adaptive_crawl_statistical,
+    crawl_deep,
+    crawl_deep_smart,
+    scrape_page,
+)
 
 __all__ = [
     "crawl_deep",
     "crawl_deep_smart",
     "scrape_page",
+    "adaptive_crawl_statistical",
+    "adaptive_crawl_embedding",
 ]

@@ -23,10 +23,12 @@ A single MCP tool named `runner` that executes a crawl session.
 *   **Input Parameters:**
     *   `url` (string, required): The starting URL for the session.
     *   `script` (string, optional): A `c4a-script` DSL string defining the interaction steps (e.g., `WAIT`, `CLICK`, `SCROLL`).
-    *   `config` (object, optional): A JSON object mapping to `crawl4ai`'s `CrawlerRunConfig`. Key fields include:
+    *   `config` (object, optional): A JSON-serializable object (standard Python types only) mapping to `crawl4ai`'s `CrawlerRunConfig`. Key fields include:
         *   `css_selector`: To scope the extraction.
         *   `word_count_threshold`: To filter small text blocks.
         *   `extraction_strategy`: To specify structured extraction (e.g., JsonCssExtractionStrategy).
+        *   `deep_crawl_strategy_params`: Parameters for deep crawling strategies (created from parameters at runtime).
+        *   `extraction_strategy_params`: Parameters for extraction strategies (created from parameters at runtime).
 
 *   **Output:**
     *   Returns a JSON object containing:

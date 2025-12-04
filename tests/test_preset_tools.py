@@ -23,8 +23,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastmcp import Context
 
+from c4a_mcp.adaptive_runner import AdaptiveCrawlRunner
 from c4a_mcp.models import RunnerOutput
-from c4a_mcp.presets.preset_tools import crawl_deep, crawl_deep_smart, scrape_page
+from c4a_mcp.presets.preset_tools import (
+    adaptive_crawl_embedding,
+    adaptive_crawl_statistical,
+    crawl_deep,
+    crawl_deep_smart,
+    scrape_page,
+)
 from c4a_mcp.runner_tool import CrawlRunner
 
 
@@ -69,12 +76,53 @@ def mock_runner_output():
     return output
 
 
+@pytest.fixture
+def mock_adaptive_runner():
+    """Create a mock AdaptiveCrawlRunner for testing."""
+    runner = MagicMock(spec=AdaptiveCrawlRunner)
+    runner.run = AsyncMock()
+    return runner
+
+
+@pytest.fixture
+def mock_adaptive_context(mock_adaptive_runner):
+    """Create a mock Context with adaptive_crawl_runner in state."""
+    ctx = MagicMock(spec=Context)
+    ctx.get_state = MagicMock(return_value=mock_adaptive_runner)
+    return ctx
+
+
+@pytest.fixture
+def mock_adaptive_runner_output():
+    """Create a mock RunnerOutput with confidence/metrics for adaptive crawling."""
+    output = RunnerOutput(
+        markdown="# Adaptive Content\n\nThis is adaptive crawl markdown.",
+        metadata={
+            "url": "https://example.com",
+            "title": "Example Page",
+            "timestamp": "2024-01-01T00:00:00",
+            "status": 200,
+            "confidence": 0.85,
+            "metrics": {
+                "coverage": 0.8,
+                "consistency": 0.75,
+                "saturation": 0.7,
+                "pages_crawled": 5,
+            },
+        },
+        error=None,
+    )
+    return output
+
+
 # --- Test tool functions exist ---
 def test_preset_tools_exist():
     """Test that preset tools are callable functions."""
     assert callable(crawl_deep)
     assert callable(crawl_deep_smart)
     assert callable(scrape_page)
+    assert callable(adaptive_crawl_statistical)
+    assert callable(adaptive_crawl_embedding)
 
 
 # --- Test crawl_deep ---
@@ -354,3 +402,151 @@ async def test_all_tools_return_json(mock_context, mock_runner_output):
         assert isinstance(result["markdown"], str)
         assert isinstance(result["metadata"], dict)
         assert result["error"] is None or isinstance(result["error"], str)
+
+
+# --- Test adaptive_crawl_statistical ---
+@pytest.mark.asyncio
+async def test_adaptive_crawl_statistical_success(
+    mock_adaptive_context, mock_adaptive_runner_output
+):
+    """Test successful adaptive_crawl_statistical execution."""
+    mock_adaptive_runner = mock_adaptive_context.get_state.return_value
+    mock_adaptive_runner.run = AsyncMock(return_value=mock_adaptive_runner_output)
+
+    result_json = await adaptive_crawl_statistical(
+        url="https://example.com",
+        query="test query",
+        ctx=mock_adaptive_context,
+    )
+
+    # Verify JSON is valid
+    result = json.loads(result_json)
+    assert result["markdown"] == "# Adaptive Content\n\nThis is adaptive crawl markdown."
+    assert result["error"] is None
+    assert result["metadata"]["url"] == "https://example.com"
+    assert result["metadata"]["confidence"] == 0.85
+    assert "metrics" in result["metadata"]
+    assert result["metadata"]["metrics"]["pages_crawled"] == 5
+
+    # Verify AdaptiveCrawlRunner was called
+    mock_adaptive_runner.run.assert_called_once()
+    call_args = mock_adaptive_runner.run.call_args[0][0]
+    assert call_args.url == "https://example.com"
+    assert call_args.query == "test query"
+    assert call_args.config["strategy"] == "statistical"
+
+
+@pytest.mark.asyncio
+async def test_adaptive_crawl_statistical_no_context():
+    """Test adaptive_crawl_statistical without context."""
+    with pytest.raises(ValueError, match="Context is required"):
+        await adaptive_crawl_statistical(
+            url="https://example.com",
+            query="test",
+            ctx=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_adaptive_crawl_statistical_no_runner(mock_context_no_runner):
+    """Test adaptive_crawl_statistical without adaptive_crawl_runner in context."""
+    with pytest.raises(ValueError, match="adaptive_crawl_runner not found"):
+        await adaptive_crawl_statistical(
+            url="https://example.com",
+            query="test",
+            ctx=mock_context_no_runner,
+        )
+
+
+@pytest.mark.asyncio
+async def test_adaptive_crawl_statistical_validation_error(mock_adaptive_context):
+    """Test adaptive_crawl_statistical with invalid input."""
+    with pytest.raises(ValueError):
+        await adaptive_crawl_statistical(
+            url="not-a-url",
+            query="test",
+            ctx=mock_adaptive_context,
+        )
+
+
+# --- Test adaptive_crawl_embedding ---
+@pytest.mark.asyncio
+async def test_adaptive_crawl_embedding_success(
+    mock_adaptive_context, mock_adaptive_runner_output
+):
+    """Test successful adaptive_crawl_embedding execution."""
+    mock_adaptive_runner = mock_adaptive_context.get_state.return_value
+    mock_adaptive_runner.run = AsyncMock(return_value=mock_adaptive_runner_output)
+
+    result_json = await adaptive_crawl_embedding(
+        url="https://example.com",
+        query="test query",
+        embedding_model="custom-model",
+        n_query_variations=15,
+        ctx=mock_adaptive_context,
+    )
+
+    # Verify JSON is valid
+    result = json.loads(result_json)
+    assert result["error"] is None
+    assert result["metadata"]["confidence"] == 0.85
+
+    # Verify AdaptiveCrawlRunner was called with embedding strategy
+    mock_adaptive_runner.run.assert_called_once()
+    call_args = mock_adaptive_runner.run.call_args[0][0]
+    assert call_args.config["strategy"] == "embedding"
+    assert call_args.config["adaptive_config_params"]["embedding_model"] == "custom-model"
+    assert call_args.config["adaptive_config_params"]["n_query_variations"] == 15
+
+
+@pytest.mark.asyncio
+async def test_adaptive_crawl_embedding_with_llm_config(
+    mock_adaptive_context, mock_adaptive_runner_output
+):
+    """Test adaptive_crawl_embedding with LLM config."""
+    mock_adaptive_runner = mock_adaptive_context.get_state.return_value
+    mock_adaptive_runner.run = AsyncMock(return_value=mock_adaptive_runner_output)
+
+    llm_config = {
+        "provider": "openai/gpt-4",
+        "api_token": "test-token",
+    }
+
+    result_json = await adaptive_crawl_embedding(
+        url="https://example.com",
+        query="test query",
+        embedding_llm_config=llm_config,
+        ctx=mock_adaptive_context,
+    )
+
+    result = json.loads(result_json)
+    assert result["error"] is None
+
+    # Verify LLM config was passed
+    call_args = mock_adaptive_runner.run.call_args[0][0]
+    assert (
+        call_args.config["adaptive_config_params"]["embedding_llm_config"]
+        == llm_config
+    )
+
+
+@pytest.mark.asyncio
+async def test_adaptive_crawl_embedding_no_context():
+    """Test adaptive_crawl_embedding without context."""
+    with pytest.raises(ValueError, match="Context is required"):
+        await adaptive_crawl_embedding(
+            url="https://example.com",
+            query="test",
+            ctx=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_adaptive_crawl_embedding_validation_error(mock_adaptive_context):
+    """Test adaptive_crawl_embedding with invalid input."""
+    with pytest.raises(ValueError):
+        await adaptive_crawl_embedding(
+            url="https://example.com",
+            query="",  # Empty query
+            ctx=mock_adaptive_context,
+        )

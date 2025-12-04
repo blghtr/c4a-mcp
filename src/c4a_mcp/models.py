@@ -188,10 +188,22 @@ class RunnerInput(BaseModel):
 class RunnerOutput(BaseModel):
     """
     Structured output from the crawl runner tool.
+    
+    For adaptive crawling tools, metadata includes:
+    - confidence: float (0.0-1.0) - Confidence score indicating information sufficiency
+    - metrics: dict - Adaptive crawling metrics:
+      - coverage: float - How well pages cover query terms
+      - consistency: float - Information coherence across pages
+      - saturation: float - Detection of diminishing returns
+      - pages_crawled: int - Number of pages actually crawled
     """
 
     markdown: str = Field(..., description="The extracted content in Markdown format.")
     metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Metadata about the crawl (title, url, timestamp)."
+        default_factory=dict,
+        description=(
+            "Metadata about the crawl: title, url, timestamp, status. "
+            "For adaptive crawling: also includes confidence and metrics."
+        ),
     )
     error: str | None = Field(None, description="Error message if the crawl failed.")

@@ -49,10 +49,11 @@ class RunnerInput(BaseModel):
 **References**: PRD-F003
 
 **Contract**:
-- **GIVEN** a `config` object
+- **GIVEN** a `config` object (JSON-serializable dict with standard Python types)
 - **WHEN** initializing the crawl run
 - **THEN** specific properties (`css_selector`, `word_count_threshold`, `wait_for`, `exclude_external_links`, `exclude_social_media_links`) SHALL be mapped to `CrawlerRunConfig`.
 - **AND** reasonable defaults SHALL be applied for missing fields (e.g., `bypass_cache: true`).
+- **AND** if `deep_crawl_strategy_params` or `extraction_strategy_params` are present, strategies SHALL be created from these parameters using factory functions.
 
 **Acceptance Predicates**:
 - [ ] Providing `css_selector` restricts output markdown to that element.
@@ -65,20 +66,39 @@ class RunnerInput(BaseModel):
 **Contract**:
 - **GIVEN** a call to `crawl_deep`, `crawl_deep_smart`, or `scrape_page`
 - **WHEN** the tool is executed
-- **THEN** it SHALL map inputs to a specialized `DeepCrawlStrategy` or `ExtractionStrategy`
-- **AND** invoke the underlying `CrawlRunner` with a generated `CrawlerRunConfig`.
+- **THEN** it SHALL pass strategy parameters (not objects) to `CrawlRunner` via config
+- **AND** `CrawlRunner` SHALL create strategy instances from parameters using factory functions
+- **AND** invoke the underlying crawl execution with a generated `CrawlerRunConfig`.
+
+**Implementation Details**:
+- Preset tools pass strategy parameters as plain dictionaries in the `config` object:
+  - `deep_crawl_strategy_params`: Contains `strategy_type` and strategy-specific parameters (e.g., `max_depth`, `max_pages`, `keywords`)
+  - `extraction_strategy_params`: Contains `strategy_type` and extraction-specific configuration
+- Strategy creation is centralized in factory modules (`crawling_factory`, `extraction_factory`)
+- No serialization of crawl4ai objects is performed; only standard Python types (dict, list, str, int, bool) are used
 
 **Invariants**:
 - Preset tools must reuse the same `CrawlRunner` logic as the main tool to ensure consistent error handling and browser configuration.
 - `crawl_deep` must default to BFS strategy.
 - `crawl_deep_smart` must default to Best-First strategy using provided keywords.
+- All strategy parameters MUST be serializable to JSON (standard Python types only).
+- Strategy objects are created from parameters at execution time, not serialized/deserialized.
 
 ## Architecture & Dependencies
 - **Language**: Python 3.10+
 - **Core Library**: `crawl4ai`
 - **Protocol**: `mcp` (Model Context Protocol)
-- **Server Framework**: `mcp` (using `FastMCP` class).
-- **Patterns**: Dependency Injection (via Factory pattern) used for preset tools to allow stateless tool creation and easier testing.
+- **Server Framework**: `FastMCP.
+- **Patterns**: 
+  - **Factory Pattern**: Centralized strategy creation via `crawling_factory` and `extraction_factory` modules
+  - **Dependency Injection**: Via FastMCP Context for `CrawlRunner` instance
+  - **Parameterized Configuration**: Strategy parameters passed as plain dictionaries (JSON-serializable), not serialized objects
+
+**Configuration Architecture**:
+- Tool inputs use only standard Python types (dict, list, str, int, bool, None) that are JSON-serializable
+- Strategy objects (e.g., `DeepCrawlStrategy`, `ExtractionStrategy`) are created from parameters at execution time
+- No dependency on crawl4ai's `to_serializable_dict()`/`from_serializable_dict()` mechanisms
+- This approach ensures reliability, testability, and avoids serialization edge cases with private attributes
 
 ## Error Handling
 - **Network Errors**: Return `{ "error": "Network error: <details>", "markdown": "" }`.

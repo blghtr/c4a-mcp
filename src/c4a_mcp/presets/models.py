@@ -245,3 +245,105 @@ class ScrapePagePresetInput(BaseModel):
         return v
 
 
+class AdaptiveCrawlInput(BaseModel):
+    """Base input model for adaptive crawling tools.
+    
+    Adaptive crawling uses query-based relevance scoring to determine
+    when sufficient information has been gathered. Stops automatically
+    when confidence threshold is reached.
+    """
+    
+    url: str = Field(..., description="Starting URL for adaptive crawl")
+    query: str = Field(..., description="Query string for relevance-based crawling")
+    confidence_threshold: float = Field(
+        0.7, ge=0.0, le=1.0, description="Stop when confidence reaches this threshold (0.0-1.0)"
+    )
+    max_pages: int = Field(20, gt=0, description="Maximum number of pages to crawl")
+    top_k_links: int = Field(3, gt=0, description="Number of links to follow per page")
+    min_gain_threshold: float = Field(
+        0.1, ge=0.0, description="Minimum expected information gain to continue crawling"
+    )
+    # Common preset parameters (subset - adaptive crawling has its own config)
+    timeout: int | float | None = None
+    css_selector: str | None = None
+    word_count_threshold: int | None = None
+    wait_for: str | None = None
+    exclude_external_links: bool | None = None
+    exclude_social_media_links: bool | None = None
+    bypass_cache: bool | None = None
+    
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate URL format."""
+        parsed = urlparse(v)
+        if not parsed.scheme or parsed.scheme not in ("http", "https"):
+            raise ValueError(f"URL must use http:// or https:// protocol, got: {v}")
+        if not parsed.netloc:
+            raise ValueError("Invalid URL format: missing netloc (domain)")
+        return v
+    
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        """Validate query is not empty."""
+        if not v or not v.strip():
+            raise ValueError("query cannot be empty")
+        return v.strip()
+
+
+class AdaptiveStatisticalInput(AdaptiveCrawlInput):
+    """Input model for statistical adaptive crawling.
+    
+    Uses term-based analysis and information theory. Fast, efficient,
+    no external dependencies. Best for well-defined queries with specific terminology.
+    """
+    
+    # No additional fields - statistical is the default strategy
+    pass
+
+
+class AdaptiveEmbeddingInput(AdaptiveCrawlInput):
+    """Input model for embedding-based adaptive crawling.
+    
+    Uses semantic embeddings for deeper understanding. Captures meaning
+    beyond exact term matches. Requires embedding model or LLM API.
+    """
+    
+    embedding_model: str = Field(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        description="Embedding model identifier (HuggingFace model name)"
+    )
+    embedding_llm_config: dict[str, Any] | None = Field(
+        None,
+        description="LLM config for query expansion: {provider: str, api_token: str, ...}"
+    )
+    n_query_variations: int = Field(
+        10, gt=0, description="Number of query variations to generate for expansion"
+    )
+    embedding_coverage_radius: float = Field(
+        0.2, ge=0.0, description="Distance threshold for semantic coverage"
+    )
+    embedding_k_exp: float = Field(
+        3.0, gt=0.0, description="Exponential decay factor for coverage (higher = stricter)"
+    )
+    embedding_min_relative_improvement: float = Field(
+        0.1, ge=0.0, description="Minimum relative improvement to continue crawling"
+    )
+    embedding_validation_min_score: float = Field(
+        0.3, ge=0.0, le=1.0, description="Minimum validation score threshold"
+    )
+    embedding_min_confidence_threshold: float = Field(
+        0.1, ge=0.0, le=1.0, description="Below this confidence = irrelevant content"
+    )
+    embedding_overlap_threshold: float = Field(
+        0.85, ge=0.0, le=1.0, description="Similarity threshold for deduplication"
+    )
+    embedding_quality_min_confidence: float = Field(
+        0.7, ge=0.0, le=1.0, description="Minimum confidence for quality display"
+    )
+    embedding_quality_max_confidence: float = Field(
+        0.95, ge=0.0, le=1.0, description="Maximum confidence for quality display"
+    )
+
+
