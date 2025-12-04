@@ -153,11 +153,30 @@ class RunnerInput(BaseModel):
             # Skip validation - will be deserialized in CrawlRunner._build_run_config()
             return v
 
-        # Let CrawlerConfigYAML handle all validation
+        # Extract strategy parameters (not part of CrawlerConfigYAML validation)
+        # These will be handled separately in CrawlRunner._build_run_config()
+        if isinstance(v, dict):
+            # Create a copy to avoid mutating the original dict
+            v_copy = v.copy()
+            strategy_params = {
+                "deep_crawl_strategy_params": v_copy.pop("deep_crawl_strategy_params", None),
+                "extraction_strategy_params": v_copy.pop("extraction_strategy_params", None),
+            }
+            # Use copy for validation
+            v = v_copy
+        else:
+            strategy_params = {}
+
+        # Let CrawlerConfigYAML handle validation of remaining config
         try:
             validated_config = CrawlerConfigYAML.from_dict(v)
-            # Return as dict for backward compatibility
-            return validated_config.model_dump(exclude_none=True)
+            # Return as dict for backward compatibility, restore strategy params
+            result = validated_config.model_dump(exclude_none=True)
+            if strategy_params["deep_crawl_strategy_params"]:
+                result["deep_crawl_strategy_params"] = strategy_params["deep_crawl_strategy_params"]
+            if strategy_params["extraction_strategy_params"]:
+                result["extraction_strategy_params"] = strategy_params["extraction_strategy_params"]
+            return result
         except Exception as e:
             logger.error(
                 "[C4A-MCP | Models] Config validation failed | data: {error: %s}",

@@ -1,10 +1,10 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Presets | Tools]
-# :relates-to: uses: "fastmcp.Context", uses: "runner_tool.CrawlRunner", uses: "presets.extraction_factory", uses: "presets.crawling_factory"
-# :rationale: "MCP tool implementations for preset crawling patterns using Context injection pattern."
+# :relates-to: uses: "fastmcp.Context", uses: "runner_tool.CrawlRunner"
+# :rationale: "MCP tool implementations for preset crawling patterns using Context injection pattern. Passes strategy parameters (not objects) for JSON-serializable configuration."
 # :references: PRD: "F004", SPEC: "SPEC-F004"
-# :contract: pre: "Valid PresetInput models, Context with crawl_runner in state", post: "Returns RunnerOutput JSON string"
-# :decision_cache: "Migrated from factory pattern to Context injection for FastMCP standalone compatibility [ARCH-013]"
+# :contract: pre: "Valid PresetInput models, Context with crawl_runner in state", post: "Returns RunnerOutput JSON string with config containing strategy_params"
+# :decision_cache: "Migrated from factory pattern to Context injection for FastMCP standalone compatibility [ARCH-013]. Refactored to parameterized configuration to avoid serialization issues [ARCH-010]"
 # LLM:END
 
 """
@@ -21,12 +21,9 @@ All tools use Context injection to access CrawlRunner from lifespan state.
 import logging
 from typing import Any
 
-from crawl4ai import CrawlerRunConfig
 from fastmcp import Context
 
 from ..models import RunnerInput
-from .crawling_factory import create_crawling_strategy
-from .extraction_factory import create_extraction_strategy
 from .models import (
     CrawlDeepSmartInput,
     DeepCrawlPresetInput,
@@ -40,38 +37,35 @@ logger = logging.getLogger(__name__)
 
 def _build_run_config_from_preset(
     preset_config: PresetBaseConfig,
-    crawling_strategy: Any | None,
-    extraction_strategy: Any | None,
+    crawling_strategy_params: dict[str, Any] | None,
+    extraction_strategy_params: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Build serialized config dict from preset configuration and strategies.
-
-    Uses CrawlerRunConfig.dump() to properly serialize strategies using
-    crawl4ai's to_serializable_dict() mechanism.
+    """Build config dict with strategy parameters (not serialized objects).
 
     Args:
         preset_config: PresetBaseConfig with all parameters
-        crawling_strategy: DeepCrawlStrategy instance or None
-        extraction_strategy: ExtractionStrategy instance or None
+        crawling_strategy_params: Dict with 'strategy_type' and strategy-specific params
+        extraction_strategy_params: Dict with 'strategy_type' and extraction config
 
     Returns:
-        Serialized dict ready for RunnerInput.config (can be deserialized with CrawlerRunConfig.load())
+        Config dict with strategy parameters (JSON-serializable, standard Python types only)
     """
     # Convert preset config to CrawlerRunConfig kwargs
     kwargs = preset_config.to_crawler_run_config_kwargs()
 
-    # Remove extraction_strategy_config - it's not a CrawlerRunConfig parameter
+    # Remove extraction_strategy fields - we use extraction_strategy_params instead
+    # These fields would cause validation errors in CrawlerConfigYAML (only "jsoncss" is allowed)
+    kwargs.pop("extraction_strategy", None)
     kwargs.pop("extraction_strategy_config", None)
 
-    # Add strategies to kwargs
-    if crawling_strategy:
-        kwargs["deep_crawl_strategy"] = crawling_strategy
-    if extraction_strategy:
-        kwargs["extraction_strategy"] = extraction_strategy
+    # Add strategy parameters (not objects) - these will be used to create strategies at execution time
+    if crawling_strategy_params:
+        kwargs["deep_crawl_strategy_params"] = crawling_strategy_params
+    if extraction_strategy_params:
+        kwargs["extraction_strategy_params"] = extraction_strategy_params
 
-    # Create CrawlerRunConfig and serialize it using dump()
-    # This properly handles strategy serialization via to_serializable_dict()
-    run_config = CrawlerRunConfig(**kwargs)
-    return run_config.dump()
+    # Return plain dict (no serialization needed - all values are JSON-serializable)
+    return kwargs
 
 
 async def crawl_deep(
@@ -125,30 +119,30 @@ async def crawl_deep(
         **(config or {}),
     )
 
-    # Create crawling strategy
-    crawling_strategy = create_crawling_strategy(
-        "bfs",
-        {
-            "max_depth": input_data.max_depth,
-            "max_pages": input_data.max_pages,
-            "include_external": input_data.include_external,
-        },
-    )
+    # Prepare crawling strategy parameters (don't create strategy object)
+    crawling_strategy_params = {
+        "strategy_type": "bfs",
+        "max_depth": input_data.max_depth,
+        "max_pages": input_data.max_pages,
+        "include_external": input_data.include_external,
+    }
 
-    # Create extraction strategy
-    extraction_strategy_instance = create_extraction_strategy(
-        input_data.extraction_strategy, input_data.extraction_strategy_config
-    )
+    # Prepare extraction strategy parameters (don't create strategy object)
+    extraction_strategy_params = None
+    if input_data.extraction_strategy:
+        extraction_strategy_params = {
+            "strategy_type": input_data.extraction_strategy,
+            "config": input_data.extraction_strategy_config,
+        }
 
     # Build preset config
     preset_config = PresetBaseConfig(
         **input_data.model_dump(exclude={"url", "max_depth", "max_pages", "include_external"})
     )
 
-    # Build serialized config dict using CrawlerRunConfig.dump()
-    # This properly serializes strategies via to_serializable_dict()
+    # Build config dict with strategy parameters (JSON-serializable)
     config_dict = _build_run_config_from_preset(
-        preset_config, crawling_strategy, extraction_strategy_instance
+        preset_config, crawling_strategy_params, extraction_strategy_params
     )
 
     # Execute via CrawlRunner
@@ -214,21 +208,22 @@ async def crawl_deep_smart(
         **(config or {}),
     )
 
-    # Create crawling strategy
-    crawling_strategy = create_crawling_strategy(
-        "best_first",
-        {
-            "max_depth": input_data.max_depth,
-            "max_pages": input_data.max_pages,
-            "include_external": input_data.include_external,
-            "keywords": input_data.keywords,
-        },
-    )
+    # Prepare crawling strategy parameters (don't create strategy object)
+    crawling_strategy_params = {
+        "strategy_type": "best_first",
+        "max_depth": input_data.max_depth,
+        "max_pages": input_data.max_pages,
+        "include_external": input_data.include_external,
+        "keywords": input_data.keywords,
+    }
 
-    # Create extraction strategy
-    extraction_strategy_instance = create_extraction_strategy(
-        input_data.extraction_strategy, input_data.extraction_strategy_config
-    )
+    # Prepare extraction strategy parameters (don't create strategy object)
+    extraction_strategy_params = None
+    if input_data.extraction_strategy:
+        extraction_strategy_params = {
+            "strategy_type": input_data.extraction_strategy,
+            "config": input_data.extraction_strategy_config,
+        }
 
     # Build preset config
     preset_config = PresetBaseConfig(
@@ -237,10 +232,9 @@ async def crawl_deep_smart(
         )
     )
 
-    # Build serialized config dict using CrawlerRunConfig.dump()
-    # This properly serializes strategies via to_serializable_dict()
+    # Build config dict with strategy parameters (JSON-serializable)
     config_dict = _build_run_config_from_preset(
-        preset_config, crawling_strategy, extraction_strategy_instance
+        preset_config, crawling_strategy_params, extraction_strategy_params
     )
 
     # Execute via CrawlRunner
@@ -295,20 +289,22 @@ async def scrape_page(
     )
 
     # No deep crawling for single-page scraping
-    crawling_strategy = None
+    crawling_strategy_params = None
 
-    # Create extraction strategy
-    extraction_strategy_instance = create_extraction_strategy(
-        input_data.extraction_strategy, input_data.extraction_strategy_config
-    )
+    # Prepare extraction strategy parameters (don't create strategy object)
+    extraction_strategy_params = None
+    if input_data.extraction_strategy:
+        extraction_strategy_params = {
+            "strategy_type": input_data.extraction_strategy,
+            "config": input_data.extraction_strategy_config,
+        }
 
     # Build preset config
     preset_config = PresetBaseConfig(**input_data.model_dump(exclude={"url"}))
 
-    # Build serialized config dict using CrawlerRunConfig.dump()
-    # This properly serializes strategies via to_serializable_dict()
+    # Build config dict with strategy parameters (JSON-serializable)
     config_dict = _build_run_config_from_preset(
-        preset_config, crawling_strategy, extraction_strategy_instance
+        preset_config, crawling_strategy_params, extraction_strategy_params
     )
 
     # Execute via CrawlRunner

@@ -102,7 +102,11 @@ def _create_best_first_strategy(params: dict[str, Any]) -> Any:
         raise ValueError("keywords required for best_first crawling strategy")
 
     # Create KeywordRelevanceScorer
-    scorer = KeywordRelevanceScorer(keywords=keywords, weight=0.7)
+    # keywords must be positional argument per API signature
+    scorer = KeywordRelevanceScorer(keywords, weight=0.7)
+    
+    # Note: Serialization/deserialization is handled in runner_tool._fix_keyword_scorer_deserialization()
+    # to_serializable_dict() may not properly serialize _keywords, but we fix it during deserialization
 
     return BestFirstCrawlingStrategy(
         max_depth=max_depth,

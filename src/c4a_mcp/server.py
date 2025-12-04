@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastmcp import FastMCP, Context
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 from .config_models import AppConfig
 from .logging_config import setup_logging
@@ -75,18 +76,51 @@ for arg in sys.argv[1:]:
         break
 
 # ============================================================================
+# Global Lifespan State Storage
+# ============================================================================
+
+# Store lifespan state globally so middleware can access it
+_lifespan_state: dict | None = None
+
+
+# ============================================================================
+# Middleware to Inject Lifespan State into Context
+# ============================================================================
+
+
+class LifespanStateMiddleware(Middleware):
+    """
+    Middleware that injects lifespan state into Context for each request.
+    
+    This allows tools to access server-scoped state (like crawl_runner) 
+    via Context.get_state().
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        """Inject lifespan state into Context before tool execution."""
+        if context.fastmcp_context and _lifespan_state:
+            # Set all lifespan state keys in Context
+            for key, value in _lifespan_state.items():
+                context.fastmcp_context.set_state(key, value)
+        
+        return await call_next(context)
+
+
+# ============================================================================
 # Lifespan Context Manager
 # ============================================================================
 
 
 @asynccontextmanager
-async def lifespan(mcp_server: FastMCP):
+async def lifespan(_mcp_server: FastMCP):
     """
     Manage server lifecycle: initialize resources on startup, cleanup on shutdown.
 
     Yields:
         dict: Lifespan state with crawl_runner and app_config
     """
+    global _lifespan_state
+    
     logger.info("[C4A-MCP | Server] Starting lifespan: initializing resources")
 
     # Create BrowserConfig from app config
@@ -105,14 +139,18 @@ async def lifespan(mcp_server: FastMCP):
 
     logger.info("[C4A-MCP | Server] CrawlRunner initialized")
 
+    # Store state globally for middleware access
+    _lifespan_state = {"crawl_runner": crawl_runner, "app_config": app_config}
+
     try:
         # Yield state to make available during server runtime
-        yield {"crawl_runner": crawl_runner, "app_config": app_config}
+        yield _lifespan_state
     finally:
         # Cleanup resources on shutdown
         logger.info("[C4A-MCP | Server] Shutting down: cleaning up resources")
         # NOTE: crawl4ai's AsyncWebCrawler uses context manager, so no explicit cleanup needed
         # Browser instances are created/destroyed per request in runner_tool.py
+        _lifespan_state = None
         logger.info("[C4A-MCP | Server] Shutdown complete")
 
 
@@ -122,6 +160,9 @@ async def lifespan(mcp_server: FastMCP):
 
 # Initialize FastMCP server with lifespan
 mcp = FastMCP(name="c4a-mcp", lifespan=lifespan)
+
+# Register middleware to inject lifespan state into Context
+mcp.add_middleware(LifespanStateMiddleware())
 
 
 # NOTE(REVIEWER): Tool signature matches PRD-F001 requirements.

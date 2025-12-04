@@ -11,15 +11,15 @@ Tests for preset tool implementations.
 
 Validates that preset tools correctly:
 - Validate inputs via Pydantic models
-- Create crawling and extraction strategies
-- Build CrawlerRunConfig
+- Pass strategy parameters (not objects) to CrawlRunner via config
+- Build config dict with strategy_params
 - Delegate to CrawlRunner
 - Return valid JSON responses
 """
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from fastmcp import Context
 
@@ -126,29 +126,25 @@ async def test_crawl_deep_with_extraction(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    with patch(
-        "c4a_mcp.presets.preset_tools.create_extraction_strategy"
-    ) as mock_create_extraction:
-        # Use real JsonCssExtractionStrategy for proper isinstance checks
-        from crawl4ai import JsonCssExtractionStrategy
+    from c4a_mcp.presets.models import ExtractionConfigCss
 
-        from c4a_mcp.presets.models import ExtractionConfigCss
-        
-        schema = {"name": "Test", "baseSelector": "div", "fields": []}
-        real_strategy = JsonCssExtractionStrategy(schema=schema)
-        mock_create_extraction.return_value = real_strategy
+    config = ExtractionConfigCss(extraction_schema={"name": "Test", "baseSelector": "div"})
+    result_json = await crawl_deep(
+        url="https://example.com",
+        extraction_strategy="css",
+        extraction_strategy_config=config,
+        ctx=mock_context,
+    )
 
-        config = ExtractionConfigCss(extraction_schema={"name": "Test", "baseSelector": "div"})
-        result_json = await crawl_deep(
-            url="https://example.com",
-            extraction_strategy="css",
-            extraction_strategy_config=config,
-            ctx=mock_context,
-        )
+    result = json.loads(result_json)
+    assert result["error"] is None
 
-        result = json.loads(result_json)
-        assert result["error"] is None
-        mock_create_extraction.assert_called_once_with("css", config)
+    # Verify extraction_strategy_params were passed in config
+    mock_crawl_runner = mock_context.get_state.return_value
+    call_args = mock_crawl_runner.run.call_args[0][0]
+    assert call_args.config is not None
+    assert "extraction_strategy_params" in call_args.config
+    assert call_args.config["extraction_strategy_params"]["strategy_type"] == "css"
 
 
 @pytest.mark.asyncio
@@ -192,10 +188,14 @@ async def test_crawl_deep_smart_success(mock_context, mock_runner_output):
     result = json.loads(result_json)
     assert result["error"] is None
 
-    # Verify keywords were used
+    # Verify keywords were passed in crawling_strategy_params
     mock_crawl_runner = mock_context.get_state.return_value
     call_args = mock_crawl_runner.run.call_args[0][0]
     assert call_args.url == "https://example.com"
+    assert call_args.config is not None
+    assert "deep_crawl_strategy_params" in call_args.config
+    assert call_args.config["deep_crawl_strategy_params"]["strategy_type"] == "best_first"
+    assert call_args.config["deep_crawl_strategy_params"]["keywords"] == ["test", "example"]
 
 
 @pytest.mark.asyncio
@@ -212,7 +212,7 @@ async def test_crawl_deep_smart_with_script(mock_context, mock_runner_output):
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
     script = "SCROLL DOWN 500"
-    result_json = await crawl_deep_smart(
+    await crawl_deep_smart(
         url="https://example.com", keywords=["test"], script=script, ctx=mock_context
     )
 
@@ -246,7 +246,7 @@ async def test_scrape_page_with_script(mock_context, mock_runner_output):
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
     script = "WAIT 3\nCLICK `#load-more`"
-    result_json = await scrape_page(url="https://example.com", script=script, ctx=mock_context)
+    await scrape_page(url="https://example.com", script=script, ctx=mock_context)
 
     mock_crawl_runner = mock_context.get_state.return_value
     call_args = mock_crawl_runner.run.call_args[0][0]
@@ -259,28 +259,26 @@ async def test_scrape_page_with_extraction(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    with patch(
-        "c4a_mcp.presets.preset_tools.create_extraction_strategy"
-    ) as mock_create_extraction:
-        # Use real JsonCssExtractionStrategy for proper isinstance checks
-        from crawl4ai import JsonCssExtractionStrategy
-        from c4a_mcp.presets.models import ExtractionConfigCss
+    from c4a_mcp.presets.models import ExtractionConfigCss
 
-        schema = {"name": "Test", "baseSelector": "div", "fields": []}
-        real_strategy = JsonCssExtractionStrategy(schema=schema)
-        mock_create_extraction.return_value = real_strategy
-
-        config = ExtractionConfigCss(extraction_schema=schema)
-        result_json = await scrape_page(
-            url="https://example.com",
-            extraction_strategy="css",
-            extraction_strategy_config=config,
-            ctx=mock_context,
-        )
+    schema = {"name": "Test", "baseSelector": "div", "fields": []}
+    config = ExtractionConfigCss(extraction_schema=schema)
+    result_json = await scrape_page(
+        url="https://example.com",
+        extraction_strategy="css",
+        extraction_strategy_config=config,
+        ctx=mock_context,
+    )
 
     result = json.loads(result_json)
     assert result["error"] is None
-    mock_create_extraction.assert_called_once()
+
+    # Verify extraction_strategy_params were passed in config
+    mock_crawl_runner = mock_context.get_state.return_value
+    call_args = mock_crawl_runner.run.call_args[0][0]
+    assert call_args.config is not None
+    assert "extraction_strategy_params" in call_args.config
+    assert call_args.config["extraction_strategy_params"]["strategy_type"] == "css"
 
 
 @pytest.mark.asyncio
@@ -325,8 +323,13 @@ async def test_crawl_deep_parameter_passing(mock_context, mock_runner_output):
     call_args = mock_crawl_runner.run.call_args[0][0]
     assert call_args.config is not None
     config_dict = call_args.config
-    # Note: Actual config structure depends on implementation
-    # This test verifies that parameters are accepted without errors
+    
+    # Verify crawling strategy params were passed
+    assert "deep_crawl_strategy_params" in config_dict
+    assert config_dict["deep_crawl_strategy_params"]["strategy_type"] == "bfs"
+    assert config_dict["deep_crawl_strategy_params"]["max_depth"] == 3
+    assert config_dict["deep_crawl_strategy_params"]["max_pages"] == 100
+    assert config_dict["deep_crawl_strategy_params"]["include_external"] is True
 
 
 @pytest.mark.asyncio

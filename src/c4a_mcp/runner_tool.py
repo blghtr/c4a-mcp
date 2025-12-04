@@ -1,15 +1,16 @@
 # LLM:METADATA
 # :hierarchy: [C4A-MCP | Logic]
-# :relates-to: uses: "crawl4ai.AsyncWebCrawler", uses: "config_models.CrawlerConfigYAML"
-# :rationale: "Encapsulates the core business logic of configuring and executing the crawl4ai crawler."
+# :relates-to: uses: "crawl4ai.AsyncWebCrawler", uses: "config_models.CrawlerConfigYAML", uses: "presets.crawling_factory", uses: "presets.extraction_factory"
+# :rationale: "Encapsulates the core business logic of configuring and executing the crawl4ai crawler. Creates strategy instances from parameters using factory functions."
 # :references: PRD: "F001, F002, F003", SPEC: "SPEC-F001, SPEC-F002, SPEC-F003"
-# :contract: pre: "Valid RunnerInput", post: "Returns RunnerOutput with markdown or error"
-# :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]"
+# :contract: pre: "Valid RunnerInput (config may contain strategy_params)", post: "Returns RunnerOutput with markdown or error"
+# :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]. Refactored to parameterized configuration to avoid serialization issues [ARCH-010]"
 # LLM:END
 
 import logging
 import traceback
 from datetime import datetime
+from typing import Any
 
 # Import crawl4ai components
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CrawlResult
@@ -74,8 +75,28 @@ class CrawlRunner:
             # Use pre-created browser_config from constructor
             # NOTE(REVIEWER): Reusing browser_config is efficient.
             # Verified: AsyncWebCrawler treats config as read-only during initialization.
-            async with AsyncWebCrawler(config=self.browser_config) as crawler:
-                crawl_result: CrawlResult = await crawler.arun(inputs.url, config=run_config)
+            # CRITICAL: Redirect stdout/stderr to prevent crawl4ai progress messages
+            # from breaking MCP JSON-RPC protocol (which expects only JSON on stdout)
+            stdout_capture = io.StringIO()
+            stderr_capture = io.StringIO()
+            
+            with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
+                async with AsyncWebCrawler(config=self.browser_config) as crawler:
+                    crawl_result: CrawlResult = await crawler.arun(inputs.url, config=run_config)
+            
+            # Log captured output for debugging (but don't send to stdout/stderr)
+            captured_stdout = stdout_capture.getvalue()
+            captured_stderr = stderr_capture.getvalue()
+            if captured_stdout:
+                logger.debug(
+                    "[C4A-MCP | Logic] Captured crawl4ai stdout | data: {output: %s}",
+                    captured_stdout[:500],  # Limit log size
+                )
+            if captured_stderr:
+                logger.debug(
+                    "[C4A-MCP | Logic] Captured crawl4ai stderr | data: {output: %s}",
+                    captured_stderr[:500],  # Limit log size
+                )
 
                 # Process result into RunnerOutput
                 # CrawlResult has metadata dict for title, status_code directly, no timestamp
@@ -143,41 +164,70 @@ class CrawlRunner:
 
     def _build_run_config(self, tool_config_dict: dict | None) -> CrawlerRunConfig:
         """
-        Build CrawlerRunConfig with 3-layer merge:
-        defaults → file overrides → tool overrides.
+        Build CrawlerRunConfig with strategy creation from parameters.
+
+        Implements 3-layer merge: defaults → file overrides → tool overrides.
+        If strategy parameters are present, creates strategy instances using factory functions.
 
         Args:
-            tool_config_dict: Optional config dict from tool call
+            tool_config_dict: Optional config dict from tool call (may contain strategy_params)
 
         Returns:
-            CrawlerRunConfig instance ready for crawl
+            CrawlerRunConfig instance ready for crawl (with strategies created from parameters)
         """
         # Start with defaults (already includes file overrides from server.py)
         merged = self.default_crawler_config.model_copy()
 
-        # Check if config dict contains serialized CrawlerRunConfig (from preset tools)
-        # Format: {type: "CrawlerRunConfig", params: {...}}
-        if tool_config_dict and "type" in tool_config_dict and tool_config_dict["type"] == "CrawlerRunConfig":
-            # Deserialize using CrawlerRunConfig.load()
-            # This handles strategies serialized via to_serializable_dict()
-            logger.debug(
-                "[C4A-MCP | Logic] Deserializing CrawlerRunConfig from preset tools | "
-                "data: {config_type: %s}",
-                tool_config_dict.get("type"),
-            )
-            return CrawlerRunConfig.load(tool_config_dict)
+        # Initialize strategy params (may be None)
+        crawling_params = None
+        extraction_params = None
 
-        # Standard path: merge with defaults and create CrawlerRunConfig
         if tool_config_dict:
+            # Extract strategy parameters (if present) before merging
+            # These are not part of CrawlerConfigYAML, so we handle them separately
+            crawling_params = tool_config_dict.pop("deep_crawl_strategy_params", None)
+            extraction_params = tool_config_dict.pop("extraction_strategy_params", None)
+
             logger.debug(
-                "[C4A-MCP | Logic] Applying tool-level config overrides | " "data: {overrides: %s}",
+                "[C4A-MCP | Logic] Applying tool-level config overrides | "
+                "data: {overrides: %s}",
                 tool_config_dict,
             )
+
+            # Merge remaining config with defaults
             tool_overrides = CrawlerConfigYAML.from_dict(tool_config_dict)
             merged = merged.merge(tool_overrides)
 
         # Convert to CrawlerRunConfig kwargs (excludes None values, converts types)
         kwargs = merged.to_crawler_run_config_kwargs()
+
+        # Create strategies from parameters using factory functions
+        if crawling_params:
+            from .presets.crawling_factory import create_crawling_strategy
+
+            strategy_type = crawling_params.pop("strategy_type")
+            kwargs["deep_crawl_strategy"] = create_crawling_strategy(
+                strategy_type, crawling_params
+            )
+            logger.debug(
+                "[C4A-MCP | Logic] Created crawling strategy from parameters | "
+                "data: {strategy_type: %s}",
+                strategy_type,
+            )
+
+        if extraction_params:
+            from .presets.extraction_factory import create_extraction_strategy
+
+            strategy_type = extraction_params.pop("strategy_type")
+            config = extraction_params.get("config")
+            kwargs["extraction_strategy"] = create_extraction_strategy(
+                strategy_type, config
+            )
+            logger.debug(
+                "[C4A-MCP | Logic] Created extraction strategy from parameters | "
+                "data: {strategy_type: %s}",
+                strategy_type,
+            )
 
         logger.debug(
             "[C4A-MCP | Logic] Built CrawlerRunConfig | data: {kwargs: %s}",
