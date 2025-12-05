@@ -56,8 +56,8 @@ class RunnerInput(BaseModel):
     config: dict[str, Any] | None = Field(
         None,
         description=(
-            "Configuration object mapping to crawl4ai's CrawlerRunConfig "
-            "(css_selector, wait_for, etc)."
+            "Configuration for crawl4ai's CrawlerRunConfig. Accepts either "
+            "a validated CrawlerConfigYAML model or a plain dict."
         ),
     )
 
@@ -125,7 +125,7 @@ class RunnerInput(BaseModel):
 
     @field_validator("config")
     @classmethod
-    def validate_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+    def validate_config(cls, v: dict[str, Any] | CrawlerConfigYAML | None) -> dict[str, Any] | None:
         """
         Validate config by delegating to CrawlerConfigYAML model.
 
@@ -146,6 +146,10 @@ class RunnerInput(BaseModel):
         """
         if v is None:
             return v
+
+        # Allow passing a validated CrawlerConfigYAML directly
+        if isinstance(v, CrawlerConfigYAML):
+            return v.model_dump(exclude_none=True)
 
         # Check if this is a serialized CrawlerRunConfig from preset tools
         # Format: {type: "CrawlerRunConfig", params: {...}}

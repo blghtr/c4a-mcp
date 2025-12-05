@@ -8,7 +8,7 @@ This project aims to provide AI agents with advanced web browsing and data extra
 
 Install this MCP server in Cursor with one click:
 
-<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=c4a-mcp&config=eyJjb21tYW5kIjogImRvY2tlciIsICJhcmdzIjogWyJydW4iLCAiLWkiLCAiLS1ybSIsICJnaGNyLmlvL2JsZ2h0ci9jNGEtbWNwOmxhdGVzdCJdfQ=="><img src="https://cursor.com/deeplink/mcp-install-dark.png" alt="Add c4a-mcp MCP server to Cursor" style="max-height: 32px;" /></a>
+`<a href="cursor://anysphere.cursor-deeplink/mcp/install?name=c4a-mcp&config=eyJjb21tYW5kIjogImRvY2tlciIsICJhcmdzIjogWyJydW4iLCAiLWkiLCAiLS1ybSIsICJnaGNyLmlvL2JsZ2h0ci9jNGEtbWNwOmxhdGVzdCJdfQ=="><img src="https://cursor.com/deeplink/mcp-install-dark.png" alt="Add c4a-mcp MCP server to Cursor" style="max-height: 32px;" />``</a>`
 
 **Note:** Requires Docker to be installed and running. The server will run in a container from `ghcr.io/blghtr/c4a-mcp:latest`.
 
@@ -19,7 +19,7 @@ Install this MCP server in Cursor with one click:
 Click the button above to install automatically in Cursor, or use the deeplink:
 
 ```
-cursor://anysphere.cursor-deeplink/mcp/install?name=c4a-mcp&config=eyJjb21tYW5kIjogImRvY2tlciIsICJhcmdzIjogWyJydW4iLCAiLWkiLCAiLS1ybSIsICJnaGNyLmlvL2JsZ2h0ci9jNGEtbWNwOmxhdGVzdCJdfQ==
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en-US/install-mcp?name=c4a-mcp&config=eyJjb21tYW5kIjoiZG9ja2VyIHJ1biAtaSAtdiBnaGNyLmlvL2JsZ2h0ci9jNGEtbWNwOmxhdGVzdCJ9)
 ```
 
 ### Option 2: Manual Installation
@@ -67,6 +67,7 @@ Add to your `mcp.json` file (typically located at `~/.cursor/mcp.json` or `%APPD
 ```
 
 **Requirements:**
+
 - Docker must be installed and running
 - For private repositories, authenticate with GitHub Container Registry:
   ```bash
@@ -101,6 +102,7 @@ uv run pre-commit install
 **Usage:**
 
 Pre-commit hooks will run automatically on `git commit`. They will:
+
 - Format code with `black` and `ruff format`
 - Fix linting issues with `ruff`
 - Check YAML/JSON files for syntax errors
@@ -141,11 +143,13 @@ The CI/CD pipeline (`/.github/workflows/ci-cd.yml`) performs the following:
 ### Docker Image
 
 Docker images are automatically built and pushed to:
+
 ```
 ghcr.io/blghtr/c4a-mcp
 ```
 
 **Available Tags:**
+
 - `latest` - Latest commit on `main` branch
 - `v<version>` - Semantic version tags (e.g., `v0.1.0`)
 
@@ -211,20 +215,22 @@ GEMINI_API_KEY=your_key_here
 **Issue:** `playwright install` fails or browsers are not found.
 
 **Solutions:**
+
 1. **Local Development:**
+
    ```bash
    # Run crawl4ai setup command
    uv run crawl4ai-setup
-   
+
    # Or manually install browsers
    uv run playwright install chromium
    ```
-
 2. **Docker:**
+
    - Ensure the Dockerfile includes all required system libraries (see Dockerfile for full list)
    - Verify Playwright installation step runs: `RUN playwright install --with-deps chromium`
-
 3. **Check Installation:**
+
    ```bash
    uv run crawl4ai-doctor
    ```
@@ -234,17 +240,19 @@ GEMINI_API_KEY=your_key_here
 **Issue:** Cannot connect to MCP server or tools not available.
 
 **Solutions:**
+
 1. **Verify Server is Running:**
+
    ```bash
    # Start the server
    uv run c4a-mcp
    ```
-
 2. **Check MCP Client Configuration:**
+
    - Ensure the server command points to: `c4a-mcp` or `python -m c4a_mcp`
    - Verify transport method (stdio, SSE, etc.) matches your client
-
 3. **Check Logs:**
+
    - Enable debug logging to see detailed error messages
    - Look for connection errors in the server logs
 
@@ -253,20 +261,22 @@ GEMINI_API_KEY=your_key_here
 **Issue:** Docker build fails with dependency or permission errors.
 
 **Solutions:**
+
 1. **Clear Build Cache:**
+
    ```bash
    docker build --no-cache -t c4a-mcp:local .
    ```
-
 2. **Check System Dependencies:**
+
    - Ensure all Playwright system libraries are included in Dockerfile
    - Verify Python version matches (3.11+)
-
 3. **Permission Issues:**
+
    - The Dockerfile now runs as non-root user (appuser)
    - If you need to modify files, ensure proper ownership
-
 4. **Network Issues:**
+
    - Check if you can reach PyPI and GitHub Container Registry
    - Consider using build-time network settings if behind a proxy
 
@@ -275,17 +285,19 @@ GEMINI_API_KEY=your_key_here
 **Issue:** Tests fail in CI/CD or locally.
 
 **Solutions:**
+
 1. **Install Dev Dependencies:**
+
    ```bash
    uv pip install --system -e ".[dev]"
    ```
-
 2. **Run Tests with Verbose Output:**
+
    ```bash
    uv run pytest -v
    ```
-
 3. **Check Python Version:**
+
    - Ensure Python 3.11+ is installed
    - CI/CD tests on 3.11 and 3.12
 
@@ -294,17 +306,19 @@ GEMINI_API_KEY=your_key_here
 **Issue:** Pre-commit hooks fail or skip.
 
 **Solutions:**
+
 1. **Update Hooks:**
+
    ```bash
    uv run pre-commit autoupdate
    ```
-
 2. **Run Manually:**
+
    ```bash
    uv run pre-commit run --all-files
    ```
-
 3. **Skip Hooks (not recommended):**
+
    ```bash
    git commit --no-verify
    ```

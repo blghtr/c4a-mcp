@@ -22,7 +22,7 @@ from crawl4ai import (
     RegexExtractionStrategy,
 )
 
-from .models import ExtractionConfig
+from .models import ExtractionConfig, ExtractionConfigCss, ExtractionConfigRegex
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +59,6 @@ def create_extraction_strategy(
     )
 
     try:
-        # Validate that config type matches strategy_type
-        from .models import ExtractionConfigRegex, ExtractionConfigCss
-        
         if strategy_type_lower == "regex":
             if not isinstance(config, ExtractionConfigRegex):
                 raise ValueError(
@@ -95,8 +92,6 @@ def create_extraction_strategy(
 
 def _create_regex_strategy(config: ExtractionConfig) -> Any:
     """Create RegexExtractionStrategy from config."""
-    from .models import ExtractionConfigRegex
-    
     if not isinstance(config, ExtractionConfigRegex):
         raise ValueError(f"Expected ExtractionConfigRegex, got {type(config).__name__}")
     
@@ -153,8 +148,6 @@ def _map_pattern_names_to_flags(pattern_names: list[str]) -> int:
 
 def _create_css_strategy(config: ExtractionConfig) -> Any:
     """Create JsonCssExtractionStrategy from config."""
-    from .models import ExtractionConfigCss
-    
     if not isinstance(config, ExtractionConfigCss):
         raise ValueError(f"Expected ExtractionConfigCss, got {type(config).__name__}")
     

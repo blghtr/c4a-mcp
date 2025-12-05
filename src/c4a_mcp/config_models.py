@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from crawl4ai import BrowserConfig, CacheMode, CrawlerRunConfig
+from crawl4ai import BrowserConfig, CacheMode, CrawlerRunConfig, JsonCssExtractionStrategy
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -159,7 +159,6 @@ class CrawlerConfigYAML(BaseModel):
                 else:
                     schema_dict = schema
                 # Create JsonCssExtractionStrategy instance
-                from crawl4ai import JsonCssExtractionStrategy
                 kwargs["extraction_strategy"] = JsonCssExtractionStrategy(schema=schema_dict)
             else:
                 # Should not happen due to validation, but handle gracefully

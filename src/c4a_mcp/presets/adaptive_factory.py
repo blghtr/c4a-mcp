@@ -17,6 +17,8 @@ for both statistical and embedding strategies.
 import logging
 from typing import Any
 
+import crawl4ai
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,15 +73,13 @@ def create_adaptive_config(
 
 def _create_statistical_config(params: dict[str, Any]) -> Any:
     """Create AdaptiveConfig for statistical strategy."""
-    from crawl4ai import AdaptiveConfig
-    
     # Extract common adaptive parameters
     confidence_threshold = params.get("confidence_threshold", 0.7)
     max_pages = params.get("max_pages", 20)
     top_k_links = params.get("top_k_links", 3)
     min_gain_threshold = params.get("min_gain_threshold", 0.1)
     
-    return AdaptiveConfig(
+    return crawl4ai.AdaptiveConfig(
         strategy="statistical",
         confidence_threshold=confidence_threshold,
         max_pages=max_pages,
@@ -90,8 +90,6 @@ def _create_statistical_config(params: dict[str, Any]) -> Any:
 
 def _create_embedding_config(params: dict[str, Any]) -> Any:
     """Create AdaptiveConfig for embedding strategy."""
-    from crawl4ai import AdaptiveConfig, LLMConfig
-    
     # Extract common adaptive parameters
     confidence_threshold = params.get("confidence_threshold", 0.7)
     max_pages = params.get("max_pages", 20)
@@ -123,9 +121,9 @@ def _create_embedding_config(params: dict[str, Any]) -> Any:
                 "embedding_llm_config must contain 'provider' key. "
                 "Required keys: provider, api_token (optional)"
             )
-        embedding_llm_config = LLMConfig(**embedding_llm_config_dict)
+        embedding_llm_config = crawl4ai.LLMConfig(**embedding_llm_config_dict)
     
-    return AdaptiveConfig(
+    return crawl4ai.AdaptiveConfig(
         strategy="embedding",
         confidence_threshold=confidence_threshold,
         max_pages=max_pages,

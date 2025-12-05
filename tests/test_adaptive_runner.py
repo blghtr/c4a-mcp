@@ -82,7 +82,7 @@ def mock_adaptive_crawler(mock_adaptive_result):
 # --- Test AdaptiveCrawlRunner.run ---
 @patch("c4a_mcp.adaptive_runner.AsyncWebCrawler")
 @patch("c4a_mcp.adaptive_runner.PatchedAdaptiveCrawler")
-@patch("c4a_mcp.presets.adaptive_factory.create_adaptive_config")
+@patch("c4a_mcp.adaptive_runner.create_adaptive_config")
 @patch("contextlib.redirect_stdout")
 @patch("contextlib.redirect_stderr")
 @pytest.mark.asyncio
@@ -144,9 +144,12 @@ async def test_run_success(
     assert result.metadata["metrics"]["pages_crawled"] == 2
     
     # Verify PatchedAdaptiveCrawler was created and digest was called
-    mock_patched_adaptive_crawler_class.assert_called_once_with(
-        mock_crawler, mock_config, link_preview_timeout=30, page_timeout=60000
-    )
+    mock_patched_adaptive_crawler_class.assert_called_once()
+    args, kwargs = mock_patched_adaptive_crawler_class.call_args
+    assert args[0] is mock_crawler
+    assert args[1].strategy == "statistical"
+    assert kwargs["link_preview_timeout"] == 30
+    assert kwargs["page_timeout"] == 60000
     mock_adaptive_crawler.digest.assert_called_once_with(
         start_url="https://example.com",
         query="test query"

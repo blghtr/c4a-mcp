@@ -18,13 +18,21 @@ Validates that preset tools correctly:
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastmcp import Context
 
 from c4a_mcp.adaptive_runner import AdaptiveCrawlRunner
 from c4a_mcp.models import RunnerOutput
+from c4a_mcp.presets.models import (
+    AdaptiveEmbeddingInput,
+    AdaptiveStatisticalInput,
+    CrawlDeepSmartInput,
+    DeepCrawlPresetInput,
+    ExtractionConfigCss,
+    ScrapePagePresetInput,
+)
 from c4a_mcp.presets.preset_tools import (
     adaptive_crawl_embedding,
     adaptive_crawl_statistical,
@@ -132,7 +140,8 @@ async def test_crawl_deep_success(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    result_json = await crawl_deep(url="https://example.com", max_depth=2, max_pages=50, ctx=mock_context)
+    params = DeepCrawlPresetInput(url="https://example.com", max_depth=2, max_pages=50)
+    result_json = await crawl_deep(params=params, ctx=mock_context)
 
     # Verify JSON is valid
     result = json.loads(result_json)
@@ -155,9 +164,8 @@ async def test_crawl_deep_with_script(mock_context, mock_runner_output):
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
     script = "WAIT `#content` 5\nCLICK `#button`"
-    result_json = await crawl_deep(
-        url="https://example.com", script=script, max_depth=2, ctx=mock_context
-    )
+    params = DeepCrawlPresetInput(url="https://example.com", max_depth=2)
+    result_json = await crawl_deep(params=params, script=script, ctx=mock_context)
 
     result = json.loads(result_json)
     assert result["error"] is None
@@ -174,15 +182,13 @@ async def test_crawl_deep_with_extraction(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    from c4a_mcp.presets.models import ExtractionConfigCss
-
     config = ExtractionConfigCss(extraction_schema={"name": "Test", "baseSelector": "div"})
-    result_json = await crawl_deep(
+    params = DeepCrawlPresetInput(
         url="https://example.com",
         extraction_strategy="css",
         extraction_strategy_config=config,
-        ctx=mock_context,
     )
+    result_json = await crawl_deep(params=params, ctx=mock_context)
 
     result = json.loads(result_json)
     assert result["error"] is None
@@ -199,14 +205,14 @@ async def test_crawl_deep_with_extraction(mock_context, mock_runner_output):
 async def test_crawl_deep_invalid_url(mock_context):
     """Test crawl_deep with invalid URL."""
     with pytest.raises(Exception):  # Pydantic ValidationError
-        await crawl_deep(url="not-a-url", ctx=mock_context)
+        await crawl_deep(params={"url": "not-a-url"}, ctx=mock_context)
 
 
 @pytest.mark.asyncio
 async def test_crawl_deep_missing_runner(mock_context_no_runner):
     """Test crawl_deep when crawl_runner is missing from context."""
     with pytest.raises(ValueError) as exc_info:
-        await crawl_deep(url="https://example.com", ctx=mock_context_no_runner)
+        await crawl_deep(params=DeepCrawlPresetInput(url="https://example.com"), ctx=mock_context_no_runner)
     assert "crawl_runner not found in context state" in str(exc_info.value)
 
 
@@ -214,7 +220,7 @@ async def test_crawl_deep_missing_runner(mock_context_no_runner):
 async def test_crawl_deep_no_context():
     """Test crawl_deep when context is None."""
     with pytest.raises(ValueError) as exc_info:
-        await crawl_deep(url="https://example.com", ctx=None)
+        await crawl_deep(params=DeepCrawlPresetInput(url="https://example.com"), ctx=None)
     assert "Context is required" in str(exc_info.value)
 
 
@@ -225,13 +231,13 @@ async def test_crawl_deep_smart_success(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    result_json = await crawl_deep_smart(
+    params = CrawlDeepSmartInput(
         url="https://example.com",
         keywords=["test", "example"],
         max_depth=2,
         max_pages=25,
-        ctx=mock_context,
     )
+    result_json = await crawl_deep_smart(params=params, ctx=mock_context)
 
     result = json.loads(result_json)
     assert result["error"] is None
@@ -250,7 +256,7 @@ async def test_crawl_deep_smart_success(mock_context, mock_runner_output):
 async def test_crawl_deep_smart_empty_keywords(mock_context):
     """Test crawl_deep_smart with empty keywords."""
     with pytest.raises(Exception):  # Pydantic ValidationError
-        await crawl_deep_smart(url="https://example.com", keywords=[], ctx=mock_context)
+        await crawl_deep_smart(params={"url": "https://example.com", "keywords": []}, ctx=mock_context)
 
 
 @pytest.mark.asyncio
@@ -260,9 +266,8 @@ async def test_crawl_deep_smart_with_script(mock_context, mock_runner_output):
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
     script = "SCROLL DOWN 500"
-    await crawl_deep_smart(
-        url="https://example.com", keywords=["test"], script=script, ctx=mock_context
-    )
+    params = CrawlDeepSmartInput(url="https://example.com", keywords=["test"])
+    await crawl_deep_smart(params=params, script=script, ctx=mock_context)
 
     mock_crawl_runner = mock_context.get_state.return_value
     call_args = mock_crawl_runner.run.call_args[0][0]
@@ -276,7 +281,8 @@ async def test_scrape_page_success(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    result_json = await scrape_page(url="https://example.com", ctx=mock_context)
+    params = ScrapePagePresetInput(url="https://example.com")
+    result_json = await scrape_page(params=params, ctx=mock_context)
 
     result = json.loads(result_json)
     assert result["error"] is None
@@ -294,7 +300,8 @@ async def test_scrape_page_with_script(mock_context, mock_runner_output):
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
     script = "WAIT 3\nCLICK `#load-more`"
-    await scrape_page(url="https://example.com", script=script, ctx=mock_context)
+    params = ScrapePagePresetInput(url="https://example.com")
+    await scrape_page(params=params, script=script, ctx=mock_context)
 
     mock_crawl_runner = mock_context.get_state.return_value
     call_args = mock_crawl_runner.run.call_args[0][0]
@@ -307,16 +314,14 @@ async def test_scrape_page_with_extraction(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    from c4a_mcp.presets.models import ExtractionConfigCss
-
     schema = {"name": "Test", "baseSelector": "div", "fields": []}
     config = ExtractionConfigCss(extraction_schema=schema)
-    result_json = await scrape_page(
+    params = ScrapePagePresetInput(
         url="https://example.com",
         extraction_strategy="css",
         extraction_strategy_config=config,
-        ctx=mock_context,
     )
+    result_json = await scrape_page(params=params, ctx=mock_context)
 
     result = json.loads(result_json)
     assert result["error"] is None
@@ -338,7 +343,8 @@ async def test_scrape_page_error_handling(mock_context):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=error_output)
 
-    result_json = await scrape_page(url="https://example.com", ctx=mock_context)
+    params = ScrapePagePresetInput(url="https://example.com")
+    result_json = await scrape_page(params=params, ctx=mock_context)
 
     result = json.loads(result_json)
     assert result["markdown"] == ""
@@ -352,19 +358,17 @@ async def test_crawl_deep_parameter_passing(mock_context, mock_runner_output):
     mock_crawl_runner = mock_context.get_state.return_value
     mock_crawl_runner.run = AsyncMock(return_value=mock_runner_output)
 
-    await crawl_deep(
+    params = DeepCrawlPresetInput(
         url="https://example.com",
         max_depth=3,
         max_pages=100,
         include_external=True,
-        config={
-            "timeout": 90,
-            "css_selector": "article",
-            "word_count_threshold": 50,
-            "exclude_external_links": True,
-        },
-        ctx=mock_context,
+        timeout=90,
+        css_selector="article",
+        word_count_threshold=50,
+        exclude_external_links=True,
     )
+    await crawl_deep(params=params, ctx=mock_context)
 
     # Verify config was built with parameters
     mock_crawl_runner = mock_context.get_state.return_value
@@ -388,9 +392,9 @@ async def test_all_tools_return_json(mock_context, mock_runner_output):
 
     # Test all tools
     results = [
-        await crawl_deep(url="https://example.com", ctx=mock_context),
-        await crawl_deep_smart(url="https://example.com", keywords=["test"], ctx=mock_context),
-        await scrape_page(url="https://example.com", ctx=mock_context),
+        await crawl_deep(params=DeepCrawlPresetInput(url="https://example.com"), ctx=mock_context),
+        await crawl_deep_smart(params=CrawlDeepSmartInput(url="https://example.com", keywords=["test"]), ctx=mock_context),
+        await scrape_page(params=ScrapePagePresetInput(url="https://example.com"), ctx=mock_context),
     ]
 
     # Verify all are valid JSON
@@ -413,11 +417,8 @@ async def test_adaptive_crawl_statistical_success(
     mock_adaptive_runner = mock_adaptive_context.get_state.return_value
     mock_adaptive_runner.run = AsyncMock(return_value=mock_adaptive_runner_output)
 
-    result_json = await adaptive_crawl_statistical(
-        url="https://example.com",
-        query="test query",
-        ctx=mock_adaptive_context,
-    )
+    params = AdaptiveStatisticalInput(url="https://example.com", query="test query")
+    result_json = await adaptive_crawl_statistical(params=params, ctx=mock_adaptive_context)
 
     # Verify JSON is valid
     result = json.loads(result_json)
@@ -441,8 +442,7 @@ async def test_adaptive_crawl_statistical_no_context():
     """Test adaptive_crawl_statistical without context."""
     with pytest.raises(ValueError, match="Context is required"):
         await adaptive_crawl_statistical(
-            url="https://example.com",
-            query="test",
+            params=AdaptiveStatisticalInput(url="https://example.com", query="test"),
             ctx=None,
         )
 
@@ -452,8 +452,7 @@ async def test_adaptive_crawl_statistical_no_runner(mock_context_no_runner):
     """Test adaptive_crawl_statistical without adaptive_crawl_runner in context."""
     with pytest.raises(ValueError, match="adaptive_crawl_runner not found"):
         await adaptive_crawl_statistical(
-            url="https://example.com",
-            query="test",
+            params=AdaptiveStatisticalInput(url="https://example.com", query="test"),
             ctx=mock_context_no_runner,
         )
 
@@ -463,35 +462,31 @@ async def test_adaptive_crawl_statistical_validation_error(mock_adaptive_context
     """Test adaptive_crawl_statistical with invalid input."""
     with pytest.raises(ValueError):
         await adaptive_crawl_statistical(
-            url="not-a-url",
-            query="test",
+            params={"url": "not-a-url", "query": "test"},
             ctx=mock_adaptive_context,
         )
 
 
 # --- Test adaptive_crawl_embedding ---
-@patch("builtins.__import__")
 @pytest.mark.asyncio
 async def test_adaptive_crawl_embedding_success(
-    mock_import,
+    monkeypatch,
     mock_adaptive_context, mock_adaptive_runner_output
 ):
     """Test successful adaptive_crawl_embedding execution."""
-    # Mock sentence_transformers import to succeed
-    original_import = __import__
-    def import_side_effect(name, *args, **kwargs):
-        if name == "sentence_transformers":
-            return MagicMock()
-        return original_import(name, *args, **kwargs)
-    mock_import.side_effect = import_side_effect
+    # Pretend sentence_transformers is available
+    monkeypatch.setattr("importlib.util.find_spec", lambda name: object())
     mock_adaptive_runner = mock_adaptive_context.get_state.return_value
     mock_adaptive_runner.run = AsyncMock(return_value=mock_adaptive_runner_output)
 
-    result_json = await adaptive_crawl_embedding(
+    params = AdaptiveEmbeddingInput(
         url="https://example.com",
         query="test query",
         embedding_model="custom-model",
         n_query_variations=15,
+    )
+    result_json = await adaptive_crawl_embedding(
+        params=params,
         ctx=mock_adaptive_context,
     )
 
@@ -521,10 +516,14 @@ async def test_adaptive_crawl_embedding_with_llm_config(
         "api_token": "test-token",
     }
 
-    result_json = await adaptive_crawl_embedding(
+    params = AdaptiveEmbeddingInput(
         url="https://example.com",
         query="test query",
         embedding_llm_config=llm_config,
+    )
+
+    result_json = await adaptive_crawl_embedding(
+        params=params,
         ctx=mock_adaptive_context,
     )
 
@@ -544,8 +543,7 @@ async def test_adaptive_crawl_embedding_no_context():
     """Test adaptive_crawl_embedding without context."""
     with pytest.raises(ValueError, match="Context is required"):
         await adaptive_crawl_embedding(
-            url="https://example.com",
-            query="test",
+            params=AdaptiveEmbeddingInput(url="https://example.com", query="test"),
             ctx=None,
         )
 
@@ -555,7 +553,6 @@ async def test_adaptive_crawl_embedding_validation_error(mock_adaptive_context):
     """Test adaptive_crawl_embedding with invalid input."""
     with pytest.raises(ValueError):
         await adaptive_crawl_embedding(
-            url="https://example.com",
-            query="",  # Empty query
+            params={"url": "https://example.com", "query": ""},  # Empty query
             ctx=mock_adaptive_context,
         )

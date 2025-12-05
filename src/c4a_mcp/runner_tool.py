@@ -19,6 +19,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CrawlResu
 
 from .config_models import CrawlerConfigYAML
 from .models import RunnerInput, RunnerOutput
+from .presets import crawling_factory, extraction_factory
 
 # Configure logger with hierarchy path format
 logger = logging.getLogger(__name__)
@@ -246,10 +247,8 @@ class CrawlRunner:
 
         # Create strategies from parameters using factory functions
         if crawling_params:
-            from .presets.crawling_factory import create_crawling_strategy
-
             strategy_type = crawling_params.pop("strategy_type")
-            kwargs["deep_crawl_strategy"] = create_crawling_strategy(
+            kwargs["deep_crawl_strategy"] = crawling_factory.create_crawling_strategy(
                 strategy_type, crawling_params
             )
             logger.debug(
@@ -259,11 +258,9 @@ class CrawlRunner:
             )
 
         if extraction_params:
-            from .presets.extraction_factory import create_extraction_strategy
-
             strategy_type = extraction_params.pop("strategy_type")
             config = extraction_params.get("config")
-            kwargs["extraction_strategy"] = create_extraction_strategy(
+            kwargs["extraction_strategy"] = extraction_factory.create_extraction_strategy(
                 strategy_type, config
             )
             logger.debug(

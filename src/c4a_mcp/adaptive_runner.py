@@ -24,10 +24,12 @@ from typing import Any, Optional
 
 from crawl4ai import AdaptiveCrawler, AsyncWebCrawler, BrowserConfig
 from crawl4ai.async_configs import CrawlerRunConfig, LinkPreviewConfig
+from crawl4ai.adaptive_crawler import EmbeddingStrategy
 from crawl4ai.models import CrawlResult
 
 from .config_models import CrawlerConfigYAML
 from .models import RunnerOutput
+from .presets.adaptive_factory import create_adaptive_config
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +150,6 @@ class PatchedAdaptiveCrawler(AdaptiveCrawler):
         self._page_timeout = page_timeout
         
         # Patch EmbeddingStrategy if it was created
-        from crawl4ai.adaptive_crawler import EmbeddingStrategy
         if isinstance(self.strategy, EmbeddingStrategy):
             PatchedEmbeddingStrategy.patch_embedding_strategy(self.strategy)
         
@@ -220,7 +221,6 @@ class PatchedAdaptiveCrawler(AdaptiveCrawler):
         strategy = super()._create_strategy(strategy_name)
         
         # Patch EmbeddingStrategy to fix _get_embedding_llm_config_dict bug
-        from crawl4ai.adaptive_crawler import EmbeddingStrategy
         if isinstance(strategy, EmbeddingStrategy):
             PatchedEmbeddingStrategy.patch_embedding_strategy(strategy)
         
@@ -309,8 +309,6 @@ class AdaptiveCrawlRunner:
                 )
             
             # Create AdaptiveConfig from parameters using factory
-            # Import here to avoid circular import
-            from .presets.adaptive_factory import create_adaptive_config
             adaptive_config = create_adaptive_config(strategy, adaptive_params)
             
             # Extract timeout configuration
