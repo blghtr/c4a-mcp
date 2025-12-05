@@ -21,15 +21,12 @@ All tools use Context injection to access CrawlRunner from lifespan state.
 import importlib.util
 import json
 import logging
-from typing import Any, TYPE_CHECKING, Annotated
+from typing import Any, Annotated
 
 from fastmcp import Context
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from ..adaptive_runner import AdaptiveRunnerInput  # pylint: disable=import-outside-toplevel
 
 from ..models import RunnerInput
 from .models import (
@@ -212,18 +209,14 @@ async def adaptive_crawl_statistical(
     }
     
     # Build config dict with strategy and adaptive config params
-    # Include timeout and other common config parameters
-    config_dict: dict[str, Any] = {
-        "strategy": "statistical",
-        "adaptive_config_params": adaptive_config_params,
-    }
-    
-    # Pass through timeout and other config parameters if provided
-    if input_data.timeout is not None:
-        config_dict["timeout"] = int(input_data.timeout)
-    # FIXME(REVIEWER): css_selector/word_count/wait_for/exclude_* from AdaptiveStatisticalInput
-    # are ignored here, so callers cannot influence content filtering despite the model+docs.
-    # Forward those fields into config_dict to align behavior with the declared schema.
+    # Include any caller-provided config (fields already consolidated in model)
+    config_dict: dict[str, Any] = input_data.config.copy() if input_data.config else {}
+    config_dict.update(
+        {
+            "strategy": "statistical",
+            "adaptive_config_params": adaptive_config_params,
+        }
+    )
     
     # Execute via AdaptiveCrawlRunner (accepts Pydantic input directly)
     result = await adaptive_runner.run(
@@ -314,18 +307,14 @@ async def adaptive_crawl_embedding(
     }
     
     # Build config dict with strategy and adaptive config params
-    # Include timeout and other common config parameters
-    config_dict: dict[str, Any] = {
-        "strategy": "embedding",
-        "adaptive_config_params": adaptive_config_params,
-    }
-    
-    # Pass through timeout and other config parameters if provided
-    if input_data.timeout is not None:
-        config_dict["timeout"] = int(input_data.timeout)
-    # FIXME(REVIEWER): css_selector/word_count/wait_for/exclude_* from AdaptiveEmbeddingInput
-    # are dropped here, so user-specified content filters never reach the runner. Include them
-    # in config_dict to honor the public API and reduce unexpected crawl scope.
+    # Include any caller-provided config (fields already consolidated in model)
+    config_dict: dict[str, Any] = input_data.config.copy() if input_data.config else {}
+    config_dict.update(
+        {
+            "strategy": "embedding",
+            "adaptive_config_params": adaptive_config_params,
+        }
+    )
     
     # Execute via AdaptiveCrawlRunner (accepts Pydantic input directly)
     result = await adaptive_runner.run(

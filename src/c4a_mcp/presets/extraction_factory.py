@@ -51,9 +51,6 @@ def create_extraction_strategy(
         raise ValueError(
             f"extraction_strategy_config required when extraction_strategy='{strategy_type}'"
         )
-        raise ValueError(
-            f"extraction_strategy_config required when extraction_strategy='{strategy_type}'"
-        )
 
     strategy_type_lower = strategy_type.lower()
 
@@ -80,8 +77,7 @@ def create_extraction_strategy(
             return _create_css_strategy(config)
         else:
             raise ValueError(
-                f"Unsupported extraction_strategy: {strategy_type}. " "Supported: 'regex', 'css'"
-                f"Unsupported extraction_strategy: {strategy_type}. " "Supported: 'regex', 'css'"
+                f"Unsupported extraction_strategy: {strategy_type}. Supported: 'regex', 'css'"
             )
     except ImportError as e:
         logger.error(

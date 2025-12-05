@@ -221,13 +221,8 @@ async def runner(
     - timeout
     - css_selector, word_count_threshold, wait_for
     - exclude_external_links, exclude_social_media_links, bypass_cache
-    - extraction_strategy: regex | css | None
-    - extraction_strategy_config / schema:
-        * regex: built_in_patterns | custom_patterns, input_format.
-          built_in_patterns: Email, PhoneUS, PhoneIntl, Url, IPv4, IPv6, Uuid,
-          Currency, Percentage, Number, DateIso, DateUS, Time24h, PostalUS, PostalUK,
-          HexColor, TwitterHandle, Hashtag, MacAddr, Iban, CreditCard, All.
-        * css: schema/extraction_schema {name, baseSelector, fields}
+    - extraction_strategy: jsoncss | None
+    - extraction_strategy_schema: schema/extraction_schema {name, baseSelector, fields}
     - advanced content/navigation:
       excluded_tags, excluded_selector, only_text, remove_forms, process_iframes,
       wait_until, wait_for_images, delay_before_return_html, check_robots_txt,
@@ -361,7 +356,7 @@ async def runner(
     ### Structured Extraction
 
     - `extraction_strategy: str | None`
-      - Currently only `"jsoncss"` is supported.
+      - Only `"jsoncss"` is supported.
       - Requires `extraction_strategy_schema` to be provided.
 
     - `extraction_strategy_schema: dict | None`

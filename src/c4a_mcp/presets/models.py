@@ -347,6 +347,30 @@ class AdaptiveCrawlInput(BaseModel):
             raise ValueError("query cannot be empty")
         return v.strip()
 
+    @model_validator(mode="after")
+    def move_filter_fields_into_config(self) -> "AdaptiveCrawlInput":
+        """
+        Consolidate root-level filter/navigation fields into config for a unified contract.
+
+        This keeps backward compatibility for callers that set fields at the top level
+        while ensuring AdaptiveCrawlRunner sees them under config.
+        """
+        config = dict(self.config) if self.config else {}
+        for key in (
+            "timeout",
+            "css_selector",
+            "word_count_threshold",
+            "wait_for",
+            "exclude_external_links",
+            "exclude_social_media_links",
+            "bypass_cache",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                config[key] = value
+        self.config = config or None
+        return self
+
 
 class AdaptiveStatisticalInput(AdaptiveCrawlInput):
     """Input model for statistical adaptive crawling.
