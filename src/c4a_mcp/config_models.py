@@ -42,6 +42,7 @@ class CrawlerConfigYAML(BaseModel):
     exclude_social_media_links: bool | None = None
     extraction_strategy: str | None = None
     extraction_strategy_schema: JsonCssSchema | dict[str, Any] | None = None
+    exclude_all_images: bool | None = None
 
     # VALIDATION: Moved from models.py RunnerInput.validate_config()
     @field_validator("timeout")
@@ -177,6 +178,9 @@ class BrowserConfigYAML(BaseModel):
     browser_type: str | None = None
     verbose: bool | None = None
     user_agent: str | None = None
+    text_mode: bool | None = None
+    light_mode: bool | None = None
+    enable_stealth: bool | None = None
 
     @field_validator("browser_type")
     @classmethod

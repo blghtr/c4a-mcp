@@ -134,6 +134,10 @@ def _map_pattern_names_to_flags(pattern_names: list[str]) -> int:
         "All": RegexExtractionStrategy.All,
     }
 
+    # FIXME(REVIEWER): pattern names are treated as case-sensitive, so valid values
+    # like "email" or "url" (common in API payloads) raise ValueError even though
+    # crawl4ai accepts them when OR'ed directly. Consider normalizing to title case
+    # before lookup to reduce avoidable user-facing errors.
     result = RegexExtractionStrategy.Nothing
     for name in pattern_names:
         if name not in flag_map:

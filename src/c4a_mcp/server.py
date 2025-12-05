@@ -3,6 +3,8 @@
 # :relates-to: uses: "fastmcp.FastMCP", uses: "runner_tool", uses: "config_models.AppConfig"
 # :rationale: "Entry point for the MCP server, handling tool registration and request routing."
 # :references: PRD: "F001", SPEC: "SPEC-F001, SPEC-F004"
+# :contract: pre: "AppConfig loaded, logging configured, lifespan initializes CrawlRunner and AdaptiveCrawlRunner in context"
+# :contract: post: "FastMCP server registered tools and exposes crawl_runner/adaptive_crawl_runner via context state"
 # :contract: invariant: "Server must remain responsive and handle exceptions gracefully"
 # :decision_cache: "Using FastMCP standalone for richer features (auth, middleware, deployment) [ARCH-004]. Lifespan context manages CrawlRunner lifecycle [ARCH-012]"
 # LLM:END

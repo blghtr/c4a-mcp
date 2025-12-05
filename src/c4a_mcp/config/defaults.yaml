@@ -7,6 +7,9 @@ browser:
   headless: true
   browser_type: "chromium"
   verbose: false
+  text_mode: true           # Disable images for faster, lighter loads
+  light_mode: true          # Reduce browser features for lower overhead
+  enable_stealth: true      # Stealth/“incognito”-like context to mask automation
 
 # Crawler Configuration
 crawler:
@@ -15,3 +18,4 @@ crawler:
   word_count_threshold: 200
   exclude_external_links: false
   exclude_social_media_links: false
+  exclude_all_images: true  # Skip image processing to reduce payloads

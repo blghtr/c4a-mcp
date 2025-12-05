@@ -81,7 +81,12 @@ def _create_bfs_strategy(params: dict[str, Any]) -> Any:
     max_depth = params.get("max_depth", 2)
     max_pages = params.get("max_pages", 50)
     include_external = params.get("include_external", False)
-    score_threshold = params.get("score_threshold", 0.3)
+    url_scorer = params.get("url_scorer")
+    if "score_threshold" in params:
+        score_threshold = params.get("score_threshold")
+    else:
+        # If no scorer, do not filter by score to avoid dropping all links
+        score_threshold = float("-inf") if url_scorer is None else 0.3
 
     return BFSDeepCrawlStrategy(
         max_depth=max_depth,

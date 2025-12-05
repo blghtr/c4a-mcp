@@ -113,7 +113,7 @@ def test_create_bfs_strategy_defaults(mock_bfs_class):
 
     assert result == mock_strategy
     mock_bfs_class.assert_called_once_with(
-        max_depth=2, max_pages=50, include_external=False, score_threshold=0.3
+        max_depth=2, max_pages=50, include_external=False, score_threshold=float("-inf")
     )
 
 

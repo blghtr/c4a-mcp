@@ -221,6 +221,9 @@ async def adaptive_crawl_statistical(
     # Pass through timeout and other config parameters if provided
     if input_data.timeout is not None:
         config_dict["timeout"] = int(input_data.timeout)
+    # FIXME(REVIEWER): css_selector/word_count/wait_for/exclude_* from AdaptiveStatisticalInput
+    # are ignored here, so callers cannot influence content filtering despite the model+docs.
+    # Forward those fields into config_dict to align behavior with the declared schema.
     
     # Execute via AdaptiveCrawlRunner (accepts Pydantic input directly)
     result = await adaptive_runner.run(
@@ -320,6 +323,9 @@ async def adaptive_crawl_embedding(
     # Pass through timeout and other config parameters if provided
     if input_data.timeout is not None:
         config_dict["timeout"] = int(input_data.timeout)
+    # FIXME(REVIEWER): css_selector/word_count/wait_for/exclude_* from AdaptiveEmbeddingInput
+    # are dropped here, so user-specified content filters never reach the runner. Include them
+    # in config_dict to honor the public API and reduce unexpected crawl scope.
     
     # Execute via AdaptiveCrawlRunner (accepts Pydantic input directly)
     result = await adaptive_runner.run(

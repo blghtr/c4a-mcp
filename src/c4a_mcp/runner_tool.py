@@ -101,10 +101,38 @@ class CrawlRunner:
                     captured_stderr[:500],  # Limit log size
                 )
 
+            # Normalize list responses from deep crawl (returns list[CrawlResult])
+            if isinstance(crawl_result, list):
+                logger.debug(
+                    "[C4A-MCP | Logic] Received list crawl_result | data: {count: %d}",
+                    len(crawl_result),
+                )
+                if not crawl_result:
+                    return RunnerOutput(markdown="", error="Deep crawl returned no results")
+
+                markdown_parts: list[str] = []
+                for idx, res in enumerate(crawl_result):
+                    if getattr(res, "markdown", None):
+                        if isinstance(res.markdown, str):
+                            markdown_parts.append(res.markdown)
+                        else:
+                            markdown_obj = res.markdown
+                            content = getattr(markdown_obj, "raw_markdown", "") or getattr(
+                                markdown_obj, "fit_markdown", ""
+                            )
+                            if content:
+                                markdown_parts.append(content)
+                # Add a clear delimiter between pages to avoid merging content silently
+                markdown_content = "\n\n---\n\n".join(markdown_parts)
+
+                # Use the first result for metadata to preserve behavior
+                crawl_result = crawl_result[0]
+            else:
+                markdown_content = ""
+
             # Process result into RunnerOutput
             # CrawlResult has metadata dict for title, status_code directly, no timestamp
-            markdown_content = ""
-            
+
             # Diagnostic logging for markdown extraction
             logger.debug(
                 "[C4A-MCP | Logic] Extracting markdown | "
@@ -113,7 +141,7 @@ class CrawlRunner:
                 not hasattr(crawl_result, "markdown") or crawl_result.markdown is None,
                 type(getattr(crawl_result, "markdown", None)).__name__ if hasattr(crawl_result, "markdown") else "N/A",
             )
-            
+
             if crawl_result.markdown:
                 # markdown can be str or MarkdownGenerationResult
                 if isinstance(crawl_result.markdown, str):
