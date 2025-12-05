@@ -32,6 +32,7 @@ from .presets.preset_tools import (
     scrape_page,
 )
 from .runner_tool import CrawlRunner
+from .crawler_registry import cleanup_all as cleanup_crawlers
 
 # Configure logging
 setup_logging()
@@ -117,6 +118,18 @@ class LifespanStateMiddleware(Middleware):
         return await call_next(context)
 
 
+class PreflightCleanupMiddleware(Middleware):
+    """
+    Middleware that performs best-effort cleanup of any tracked crawlers before tool execution.
+    
+    Acts as a safety net in case previous calls were cancelled and left browser processes alive.
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        await cleanup_crawlers(logger, timeout=5.0)
+        return await call_next(context)
+
+
 # ============================================================================
 # Lifespan Context Manager
 # ============================================================================
@@ -186,6 +199,8 @@ mcp = FastMCP(name="c4a-mcp", lifespan=lifespan)
 
 # Register middleware to inject lifespan state into Context
 mcp.add_middleware(LifespanStateMiddleware())
+# Register preflight cleanup middleware to avoid leaked crawlers between tool calls
+mcp.add_middleware(PreflightCleanupMiddleware())
 
 
 # NOTE(REVIEWER): Tool signature matches PRD-F001 requirements.

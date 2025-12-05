@@ -7,6 +7,7 @@
 # :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]. Refactored to parameterized configuration to avoid serialization issues [ARCH-010]"
 # LLM:END
 
+import asyncio
 import logging
 import sys
 import traceback
@@ -18,6 +19,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CrawlResu
 from .config_models import CrawlerConfigYAML
 from .models import RunnerInput, RunnerOutput
 from .presets import crawling_factory, extraction_factory
+from .crawler_registry import register as register_crawler, deregister as deregister_crawler, close_crawler
 
 # Configure logger with hierarchy path format
 logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ class LoggerWriter:
         self.logger = logger_instance
         self.level = level
         self.buffer = ""
+        self._last_line: str | None = None
 
     def write(self, message: str) -> int:
         """Write message to logger.
@@ -61,8 +64,14 @@ class LoggerWriter:
                 lines = self.buffer.split("\n")
                 # Log all complete lines
                 for line in lines[:-1]:
-                    if line.strip():
-                        self.logger.log(self.level, "[crawl4ai] %s", line.strip())
+                    cleaned = line.strip()
+                    if not cleaned:
+                        continue
+                    # Skip immediate duplicates to avoid double-logging the same crawl4ai progress line.
+                    if cleaned == self._last_line:
+                        continue
+                    self._last_line = cleaned
+                    self.logger.log(self.level, "[crawl4ai] %s", cleaned)
                 # Keep the incomplete line in buffer
                 self.buffer = lines[-1]
 
@@ -71,7 +80,10 @@ class LoggerWriter:
     def flush(self) -> None:
         """Flush any remaining buffered content."""
         if self.buffer.strip():
-            self.logger.log(self.level, "[crawl4ai] %s", self.buffer.strip())
+            cleaned = self.buffer.strip()
+            if cleaned != self._last_line:
+                self.logger.log(self.level, "[crawl4ai] %s", cleaned)
+                self._last_line = cleaned
             self.buffer = ""
 
 
@@ -164,6 +176,10 @@ class CrawlRunner:
             old_stdout = sys.stdout
             old_stderr = sys.stderr
 
+            crawler = AsyncWebCrawler(config=self.browser_config)
+            register_crawler(crawler)
+            entered = False
+
             try:
                 sys.stdout = stdout_logger
                 sys.stderr = stderr_logger
@@ -174,16 +190,30 @@ class CrawlRunner:
                         handler.flush()
 
                 logger.debug("[C4A-MCP | Logic | Run] Initializing AsyncWebCrawler")
-                async with AsyncWebCrawler(config=self.browser_config) as crawler:
-                    logger.debug("[C4A-MCP | Logic | Run] Starting crawler.arun()")
-                    # Flush before arun
-                    for handler in logger.handlers:
-                        if hasattr(handler, "flush"):
-                            handler.flush()
+                try:
+                    async with crawler as active_crawler:
+                        entered = True
+                        logger.debug("[C4A-MCP | Logic | Run] Starting crawler.arun()")
+                        # Flush before arun
+                        for handler in logger.handlers:
+                            if hasattr(handler, "flush"):
+                                handler.flush()
 
-                    crawl_result: CrawlResult = await crawler.arun(inputs.url, config=run_config)
-                    logger.debug("[C4A-MCP | Logic | Run] crawler.arun() completed")
+                        crawl_result: CrawlResult = await active_crawler.arun(
+                            inputs.url, config=run_config
+                        )
+                        logger.debug("[C4A-MCP | Logic | Run] crawler.arun() completed")
+                except asyncio.CancelledError:
+                    logger.warning("[C4A-MCP | Logic | Run] Cancelled during crawl; forcing cleanup")
+                    raise
             finally:
+                # Ensure crawler is closed if context failed to enter; otherwise __aexit__ already ran
+                try:
+                    if not entered:
+                        await close_crawler(crawler, logger, timeout=10.0)
+                finally:
+                    deregister_crawler(crawler)
+
                 # Restore original stdout/stderr
                 sys.stdout = old_stdout
                 sys.stderr = old_stderr

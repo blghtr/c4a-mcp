@@ -110,11 +110,11 @@ def _create_filter_chain(config: dict[str, Any] | None) -> Any:
             # Map params to arguments
             mode = f_params.get("mode", "exclude")
             patterns = f_params.get("patterns", [])
-            # crawl4ai URLPatternFilter uses 'patterns' (include) and 'exclude_patterns' (exclude)
+            # crawl4ai URLPatternFilter excludes via reverse=True (no exclude_patterns kwarg)
             if mode == "include":
                 created_filters.append(URLPatternFilter(patterns=patterns))
             else:
-                created_filters.append(URLPatternFilter(exclude_patterns=patterns))
+                created_filters.append(URLPatternFilter(patterns=patterns, reverse=True))
 
         elif f_type == "DomainFilter":
             created_filters.append(

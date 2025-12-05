@@ -179,7 +179,7 @@ def test_create_filter_chain_url_pattern_exclude(mock_url_filter, mock_filter_ch
     result = _create_filter_chain(config)
 
     assert result == mock_filter_chain.return_value
-    mock_url_filter.assert_called_once_with(exclude_patterns=["*.css"])
+    mock_url_filter.assert_called_once_with(patterns=["*.css"], reverse=True)
     mock_filter_chain.assert_called_once()
     args, kwargs = mock_filter_chain.call_args
     assert kwargs["filters"] == [mock_url_filter.return_value]

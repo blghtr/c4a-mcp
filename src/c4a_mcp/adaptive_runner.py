@@ -15,6 +15,7 @@ crawling that stops when sufficient information is gathered based on relevance
 metrics (coverage, consistency, saturation).
 """
 
+import asyncio
 import contextlib
 import io
 import logging
@@ -31,6 +32,7 @@ from .config_models import CrawlerConfigYAML
 from .models import RunnerOutput
 from .presets.adaptive_factory import create_adaptive_config
 from .presets.models import AdaptiveEmbeddingInput, AdaptiveStatisticalInput
+from .crawler_registry import register as register_crawler, deregister as deregister_crawler, close_crawler
 
 logger = logging.getLogger(__name__)
 
@@ -360,48 +362,62 @@ class AdaptiveCrawlRunner:
                 )
             
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
-                async with AsyncWebCrawler(config=self.browser_config) as crawler:
-                    # Create PatchedAdaptiveCrawler with configurable timeout
-                    adaptive = PatchedAdaptiveCrawler(
-                        crawler,
-                        adaptive_config,
-                        link_preview_timeout=link_preview_timeout,
-                        page_timeout=page_timeout_ms,
-                    )
-                    
-                    # Execute adaptive crawl
-                    logger.debug(
-                        "[C4A-MCP | Logic | Adaptive] Starting digest() | "
-                        "data: {url: %s, query: %s, strategy: %s}",
-                        inputs.url,
-                        inputs.query[:100] if len(inputs.query) > 100 else inputs.query,
-                        strategy,
-                    )
-                    
-                    # For embedding strategy, log that model loading is about to happen
-                    if strategy == "embedding":
-                        logger.info(
-                            "[C4A-MCP | Logic | Adaptive] Embedding strategy: "
-                            "model will be loaded on first use (may take 2-5 minutes)"
+                crawler = AsyncWebCrawler(config=self.browser_config)
+                register_crawler(crawler)
+                entered = False
+                try:
+                    async with crawler as active_crawler:
+                        entered = True
+                        # Create PatchedAdaptiveCrawler with configurable timeout
+                        adaptive = PatchedAdaptiveCrawler(
+                            active_crawler,
+                            adaptive_config,
+                            link_preview_timeout=link_preview_timeout,
+                            page_timeout=page_timeout_ms,
                         )
-                    
-                    result = await adaptive.digest(
-                        start_url=inputs.url,
-                        query=inputs.query
-                    )
-                    
-                    # Log result structure for debugging
-                    logger.debug(
-                        "[C4A-MCP | Logic | Adaptive] Digest completed | "
-                        "data: {result_type: %s, has_markdown: %s, has_url: %s, has_metadata: %s, "
-                        "has_crawled_urls: %s, result_attrs: %s}",
-                        type(result).__name__,
-                        hasattr(result, "markdown"),
-                        hasattr(result, "url"),
-                        hasattr(result, "metadata"),
-                        hasattr(result, "crawled_urls"),
-                        [attr for attr in dir(result) if not attr.startswith("_")][:10],
-                    )
+                        
+                        # Execute adaptive crawl
+                        logger.debug(
+                            "[C4A-MCP | Logic | Adaptive] Starting digest() | "
+                            "data: {url: %s, query: %s, strategy: %s}",
+                            inputs.url,
+                            inputs.query[:100] if len(inputs.query) > 100 else inputs.query,
+                            strategy,
+                        )
+                        
+                        # For embedding strategy, log that model loading is about to happen
+                        if strategy == "embedding":
+                            logger.info(
+                                "[C4A-MCP | Logic | Adaptive] Embedding strategy: "
+                                "model will be loaded on first use (may take 2-5 minutes)"
+                            )
+                        
+                        result = await adaptive.digest(
+                            start_url=inputs.url,
+                            query=inputs.query
+                        )
+                        
+                        # Log result structure for debugging
+                        logger.debug(
+                            "[C4A-MCP | Logic | Adaptive] Digest completed | "
+                            "data: {result_type: %s, has_markdown: %s, has_url: %s, has_metadata: %s, "
+                            "has_crawled_urls: %s, result_attrs: %s}",
+                            type(result).__name__,
+                            hasattr(result, "markdown"),
+                            hasattr(result, "url"),
+                            hasattr(result, "metadata"),
+                            hasattr(result, "crawled_urls"),
+                            [attr for attr in dir(result) if not attr.startswith("_")][:10],
+                        )
+                except asyncio.CancelledError:
+                    logger.warning("[C4A-MCP | Logic | Adaptive] Cancelled during adaptive crawl; forcing cleanup")
+                    raise
+                finally:
+                    try:
+                        if not entered:
+                            await close_crawler(crawler, logger, timeout=10.0)
+                    finally:
+                        deregister_crawler(crawler)
             
             # Log captured output for debugging
             # This includes sentence-transformers download progress
