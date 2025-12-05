@@ -51,6 +51,9 @@ def create_extraction_strategy(
         raise ValueError(
             f"extraction_strategy_config required when extraction_strategy='{strategy_type}'"
         )
+        raise ValueError(
+            f"extraction_strategy_config required when extraction_strategy='{strategy_type}'"
+        )
 
     strategy_type_lower = strategy_type.lower()
 
@@ -78,6 +81,7 @@ def create_extraction_strategy(
         else:
             raise ValueError(
                 f"Unsupported extraction_strategy: {strategy_type}. " "Supported: 'regex', 'css'"
+                f"Unsupported extraction_strategy: {strategy_type}. " "Supported: 'regex', 'css'"
             )
     except ImportError as e:
         logger.error(
@@ -95,6 +99,7 @@ def _create_regex_strategy(config: ExtractionConfig) -> Any:
     """Create RegexExtractionStrategy from config."""
     if not isinstance(config, ExtractionConfigRegex):
         raise ValueError(f"Expected ExtractionConfigRegex, got {type(config).__name__}")
+
 
     built_in_patterns = config.built_in_patterns
     custom_patterns = config.custom_patterns
@@ -157,5 +162,6 @@ def _create_css_strategy(config: ExtractionConfig) -> Any:
     """Create JsonCssExtractionStrategy from config."""
     if not isinstance(config, ExtractionConfigCss):
         raise ValueError(f"Expected ExtractionConfigCss, got {type(config).__name__}")
+
 
     return JsonCssExtractionStrategy(schema=config.extraction_schema)
