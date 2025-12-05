@@ -21,6 +21,12 @@ from crawl4ai.deep_crawling import (
     BFSDeepCrawlStrategy,
     BestFirstCrawlingStrategy,
 )
+from crawl4ai.deep_crawling.filters import (
+    FilterChain,
+    URLPatternFilter,
+    DomainFilter,
+    ContentTypeFilter,
+)
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 
 logger = logging.getLogger(__name__)
@@ -76,6 +82,59 @@ def create_crawling_strategy(
         ) from e
 
 
+def _create_filter_chain(config: dict[str, Any] | None) -> Any:
+    """
+    Create FilterChain from configuration dictionary.
+
+    Args:
+        config: Filter chain configuration dict (type: FilterChain, filters: list)
+
+    Returns:
+        FilterChain instance or None
+    """
+    if not config:
+        return None
+
+    # Handle both top-level config being the chain, or extracted params
+    # config matches FilterChainConfig.model_dump() -> {type: "FilterChain", filters: [...]}
+    filters_list = config.get("filters", [])
+    if not filters_list:
+        return None
+
+    created_filters = []
+    for filter_conf in filters_list:
+        f_type = filter_conf.get("type")
+        f_params = filter_conf.get("params", {})
+
+        if f_type == "URLPatternFilter":
+            # Map params to arguments
+            mode = f_params.get("mode", "exclude")
+            patterns = f_params.get("patterns", [])
+            # crawl4ai URLPatternFilter uses 'patterns' (include) and 'exclude_patterns' (exclude)
+            if mode == "include":
+                created_filters.append(URLPatternFilter(patterns=patterns))
+            else:
+                created_filters.append(URLPatternFilter(exclude_patterns=patterns))
+
+        elif f_type == "DomainFilter":
+            created_filters.append(
+                DomainFilter(
+                    allowed_domains=f_params.get("allowed_domains"),
+                    blocked_domains=f_params.get("blocked_domains"),
+                )
+            )
+
+        elif f_type == "ContentTypeFilter":
+            created_filters.append(
+                ContentTypeFilter(allowed_types=f_params.get("allowed_types", ["text/html"]))
+            )
+
+    if not created_filters:
+        return None
+
+    return FilterChain(filters=created_filters)
+
+
 def _create_bfs_strategy(params: dict[str, Any]) -> Any:
     """Create BFSDeepCrawlStrategy from parameters."""
     max_depth = params.get("max_depth", 2)
@@ -92,6 +151,7 @@ def _create_bfs_strategy(params: dict[str, Any]) -> Any:
         max_depth=max_depth,
         max_pages=max_pages,
         include_external=include_external,
+        filter_chain=_create_filter_chain(params.get("filter_chain")),
         score_threshold=score_threshold,
     )
 
@@ -109,7 +169,7 @@ def _create_best_first_strategy(params: dict[str, Any]) -> Any:
     # Create KeywordRelevanceScorer
     # keywords must be positional argument per API signature
     scorer = KeywordRelevanceScorer(keywords, weight=0.7)
-    
+
     # Note: Serialization/deserialization is handled in runner_tool._fix_keyword_scorer_deserialization()
     # to_serializable_dict() may not properly serialize _keywords, but we fix it during deserialization
 
@@ -117,8 +177,6 @@ def _create_best_first_strategy(params: dict[str, Any]) -> Any:
         max_depth=max_depth,
         max_pages=max_pages,
         include_external=include_external,
+        filter_chain=_create_filter_chain(params.get("filter_chain")),
         url_scorer=scorer,
     )
-
-
-
