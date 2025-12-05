@@ -19,7 +19,7 @@ Validates that preset tools correctly:
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastmcp import Context
 
@@ -470,11 +470,20 @@ async def test_adaptive_crawl_statistical_validation_error(mock_adaptive_context
 
 
 # --- Test adaptive_crawl_embedding ---
+@patch("builtins.__import__")
 @pytest.mark.asyncio
 async def test_adaptive_crawl_embedding_success(
+    mock_import,
     mock_adaptive_context, mock_adaptive_runner_output
 ):
     """Test successful adaptive_crawl_embedding execution."""
+    # Mock sentence_transformers import to succeed
+    original_import = __import__
+    def import_side_effect(name, *args, **kwargs):
+        if name == "sentence_transformers":
+            return MagicMock()
+        return original_import(name, *args, **kwargs)
+    mock_import.side_effect = import_side_effect
     mock_adaptive_runner = mock_adaptive_context.get_state.return_value
     mock_adaptive_runner.run = AsyncMock(return_value=mock_adaptive_runner_output)
 
