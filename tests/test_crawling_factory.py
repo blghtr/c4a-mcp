@@ -50,8 +50,6 @@ def test_create_crawling_strategy_best_first(mock_create_best_first):
     mock_create_best_first.assert_called_once_with(params)
 
 
-
-
 def test_create_crawling_strategy_none():
     """Test creating crawling strategy with 'none' type."""
     result = create_crawling_strategy("none", {})
@@ -96,7 +94,7 @@ def test_create_bfs_strategy(mock_bfs_class):
 
     assert result == mock_strategy
     mock_bfs_class.assert_called_once_with(
-        max_depth=3, max_pages=100, include_external=True, score_threshold=0.5
+        max_depth=3, max_pages=100, include_external=True, filter_chain=None, score_threshold=0.5
     )
 
 
@@ -113,7 +111,11 @@ def test_create_bfs_strategy_defaults(mock_bfs_class):
 
     assert result == mock_strategy
     mock_bfs_class.assert_called_once_with(
-        max_depth=2, max_pages=50, include_external=False, score_threshold=float("-inf")
+        max_depth=2,
+        max_pages=50,
+        include_external=False,
+        filter_chain=None,
+        score_threshold=float("-inf"),
     )
 
 
@@ -143,6 +145,7 @@ def test_create_best_first_strategy(mock_scorer_class, mock_best_first_class):
         max_depth=2,
         max_pages=25,
         include_external=False,
+        filter_chain=None,
         url_scorer=mock_scorer,
     )
 
@@ -157,4 +160,74 @@ def test_create_best_first_strategy_no_keywords():
     assert "keywords required" in str(exc_info.value)
 
 
+@patch("c4a_mcp.presets.crawling_factory.FilterChain")
+@patch("c4a_mcp.presets.crawling_factory.URLPatternFilter")
+def test_create_filter_chain_url_pattern_exclude(mock_url_filter, mock_filter_chain):
+    """Test creating filter chain with URLPatternFilter (exclude)."""
+    from c4a_mcp.presets.crawling_factory import _create_filter_chain
 
+    config = {
+        "type": "FilterChain",
+        "filters": [
+            {
+                "type": "URLPatternFilter",
+                "params": {"mode": "exclude", "patterns": ["*.css"]},
+            }
+        ],
+    }
+
+    result = _create_filter_chain(config)
+
+    assert result == mock_filter_chain.return_value
+    mock_url_filter.assert_called_once_with(exclude_patterns=["*.css"])
+    mock_filter_chain.assert_called_once()
+    args, kwargs = mock_filter_chain.call_args
+    assert kwargs["filters"] == [mock_url_filter.return_value]
+
+
+@patch("c4a_mcp.presets.crawling_factory.FilterChain")
+@patch("c4a_mcp.presets.crawling_factory.URLPatternFilter")
+def test_create_filter_chain_url_pattern_include(mock_url_filter, mock_filter_chain):
+    """Test creating filter chain with URLPatternFilter (include)."""
+    from c4a_mcp.presets.crawling_factory import _create_filter_chain
+
+    config = {
+        "type": "FilterChain",
+        "filters": [
+            {
+                "type": "URLPatternFilter",
+                "params": {"mode": "include", "patterns": ["*/docs/*"]},
+            }
+        ],
+    }
+
+    _create_filter_chain(config)
+
+    mock_url_filter.assert_called_once_with(patterns=["*/docs/*"])
+
+
+@patch("c4a_mcp.presets.crawling_factory.BFSDeepCrawlStrategy")
+@patch("c4a_mcp.presets.crawling_factory._create_filter_chain")
+def test_create_bfs_strategy_with_filter_chain(mock_create_chain, mock_bfs_class):
+    """Test creating BFS strategy with filter chain param."""
+    mock_chain = MagicMock()
+    mock_create_chain.return_value = mock_chain
+    mock_strategy = MagicMock()
+    mock_bfs_class.return_value = mock_strategy
+
+    from c4a_mcp.presets.crawling_factory import _create_bfs_strategy
+
+    filter_config = {"type": "FilterChain", "filters": []}
+    params = {"max_depth": 2, "filter_chain": filter_config}
+
+    result = _create_bfs_strategy(params)
+
+    assert result == mock_strategy
+    mock_create_chain.assert_called_once_with(filter_config)
+    mock_bfs_class.assert_called_once_with(
+        max_depth=2,
+        max_pages=50,
+        include_external=False,
+        filter_chain=mock_chain,
+        score_threshold=float("-inf"),
+    )

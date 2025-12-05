@@ -57,12 +57,67 @@ class ExtractionConfigCss(BaseModel):
     extraction_schema: dict[str, Any] = Field(
         ..., description="CSS extraction schema with name, baseSelector, and fields", alias="schema"
     )
-    
+
     model_config = {"populate_by_name": True}
 
 
 # Union type for extraction configs (discriminated by "type" field)
 ExtractionConfig = ExtractionConfigRegex | ExtractionConfigCss
+
+
+# Filter type models with "params" nesting to match user request structure
+
+
+class URLPatternFilterParams(BaseModel):
+    """Parameters for URLPatternFilter."""
+
+    mode: Literal["include", "exclude"] = "exclude"
+    patterns: list[str] = Field(..., min_length=1, description="Glob patterns for URLs")
+
+
+class URLPatternFilterConfig(BaseModel):
+    """Configuration for URLPatternFilter."""
+
+    type: Literal["URLPatternFilter"] = "URLPatternFilter"
+    params: URLPatternFilterParams
+
+
+class DomainFilterParams(BaseModel):
+    """Parameters for DomainFilter."""
+
+    allowed_domains: list[str] | None = None
+    blocked_domains: list[str] | None = None
+
+
+class DomainFilterConfig(BaseModel):
+    """Configuration for DomainFilter."""
+
+    type: Literal["DomainFilter"] = "DomainFilter"
+    params: DomainFilterParams
+
+
+class ContentTypeFilterParams(BaseModel):
+    """Parameters for ContentTypeFilter."""
+
+    allowed_types: list[str] = Field(default_factory=lambda: ["text/html"])
+
+
+class ContentTypeFilterConfig(BaseModel):
+    """Configuration for ContentTypeFilter."""
+
+    type: Literal["ContentTypeFilter"] = "ContentTypeFilter"
+    params: ContentTypeFilterParams
+
+
+# Discriminated union for all filter types
+FilterConfig = URLPatternFilterConfig | DomainFilterConfig | ContentTypeFilterConfig
+
+
+class FilterChainConfig(BaseModel):
+    """Configuration for FilterChain."""
+
+    type: Literal["FilterChain"] = "FilterChain"
+    filters: list[FilterConfig]
 
 
 class PresetBaseConfig(CrawlerConfigYAML):
@@ -106,9 +161,7 @@ class PresetBaseConfig(CrawlerConfigYAML):
     def validate_extraction_strategy(cls, v: str | None) -> str | None:
         """Validate extraction strategy type."""
         if v is not None and v.lower() not in ("regex", "css"):
-            raise ValueError(
-                f"extraction_strategy must be 'regex', 'css', or None, got: {v}"
-            )
+            raise ValueError(f"extraction_strategy must be 'regex', 'css', or None, got: {v}")
         return v.lower() if v else None
 
     @model_validator(mode="after")
@@ -119,9 +172,7 @@ class PresetBaseConfig(CrawlerConfigYAML):
                 f"extraction_strategy_config required when extraction_strategy='{self.extraction_strategy}'"
             )
         if not self.extraction_strategy and self.extraction_strategy_config:
-            raise ValueError(
-                "extraction_strategy_config provided but extraction_strategy is None"
-            )
+            raise ValueError("extraction_strategy_config provided but extraction_strategy is None")
         return self
 
 
@@ -131,8 +182,9 @@ class DeepCrawlPresetInput(BaseModel):
     url: str = Field(..., description="Starting URL for deep crawl")
     max_depth: int = Field(2, description="Maximum crawl depth")
     max_pages: int = Field(50, description="Maximum number of pages to crawl")
-    include_external: bool = Field(
-        False, description="Whether to follow external links"
+    include_external: bool = Field(False, description="Whether to follow external links")
+    filter_chain: FilterChainConfig | None = Field(
+        None, description="Filter chain configuration for deep crawling"
     )
     # All common preset parameters
     extraction_strategy: str | None = None
@@ -186,7 +238,6 @@ class DeepCrawlPresetInput(BaseModel):
         if v <= 0:
             raise ValueError(f"max_pages must be positive, got: {v}")
         return v
-
 
 
 class CrawlDeepSmartInput(DeepCrawlPresetInput):
@@ -247,12 +298,12 @@ class ScrapePagePresetInput(BaseModel):
 
 class AdaptiveCrawlInput(BaseModel):
     """Base input model for adaptive crawling tools.
-    
+
     Adaptive crawling uses query-based relevance scoring to determine
     when sufficient information has been gathered. Stops automatically
     when confidence threshold is reached.
     """
-    
+
     url: str = Field(..., description="Starting URL for adaptive crawl")
     query: str = Field(..., description="Query string for relevance-based crawling")
     confidence_threshold: float = Field(
@@ -276,7 +327,7 @@ class AdaptiveCrawlInput(BaseModel):
         default=None,
         description="Optional runner config (strategy, adaptive_config_params, timeout).",
     )
-    
+
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
@@ -287,7 +338,7 @@ class AdaptiveCrawlInput(BaseModel):
         if not parsed.netloc:
             raise ValueError("Invalid URL format: missing netloc (domain)")
         return v
-    
+
     @field_validator("query")
     @classmethod
     def validate_query(cls, v: str) -> str:
@@ -299,29 +350,28 @@ class AdaptiveCrawlInput(BaseModel):
 
 class AdaptiveStatisticalInput(AdaptiveCrawlInput):
     """Input model for statistical adaptive crawling.
-    
+
     Uses term-based analysis and information theory. Fast, efficient,
     no external dependencies. Best for well-defined queries with specific terminology.
     """
-    
+
     # No additional fields - statistical is the default strategy
     pass
 
 
 class AdaptiveEmbeddingInput(AdaptiveCrawlInput):
     """Input model for embedding-based adaptive crawling.
-    
+
     Uses semantic embeddings for deeper understanding. Captures meaning
     beyond exact term matches. Requires embedding model or LLM API.
     """
-    
+
     embedding_model: str = Field(
         "sentence-transformers/all-MiniLM-L6-v2",
-        description="Embedding model identifier (HuggingFace model name)"
+        description="Embedding model identifier (HuggingFace model name)",
     )
     embedding_llm_config: dict[str, Any] | None = Field(
-        None,
-        description="LLM config for query expansion: {provider: str, api_token: str, ...}"
+        None, description="LLM config for query expansion: {provider: str, api_token: str, ...}"
     )
     n_query_variations: int = Field(
         10, gt=0, description="Number of query variations to generate for expansion"
@@ -350,5 +400,3 @@ class AdaptiveEmbeddingInput(AdaptiveCrawlInput):
     embedding_quality_max_confidence: float = Field(
         0.95, ge=0.0, le=1.0, description="Maximum confidence for quality display"
     )
-
-

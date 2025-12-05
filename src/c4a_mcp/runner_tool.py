@@ -7,12 +7,10 @@
 # :decision_cache: "Separated logic from server code to allow for easier testing and potential CLI usage [ARCH-003]. Refactored to parameterized configuration to avoid serialization issues [ARCH-010]"
 # LLM:END
 
-import contextlib
-import io
 import logging
+import sys
 import traceback
 from datetime import datetime
-from typing import Any
 
 # Import crawl4ai components
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CrawlResult
@@ -23,6 +21,58 @@ from .presets import crawling_factory, extraction_factory
 
 # Configure logger with hierarchy path format
 logger = logging.getLogger(__name__)
+
+
+class LoggerWriter:
+    """Stream writer that redirects output to a logger in real-time.
+
+    This replaces StringIO buffering to enable live log streaming during
+    long-running operations like deep crawls.
+    """
+
+    def __init__(self, logger_instance: logging.Logger, level: int = logging.DEBUG):
+        """Initialize LoggerWriter.
+
+        Args:
+            logger_instance: Logger to write to
+            level: Log level for messages (default: DEBUG)
+        """
+        self.logger = logger_instance
+        self.level = level
+        self.buffer = ""
+
+    def write(self, message: str) -> int:
+        """Write message to logger.
+
+        Buffers partial lines and logs complete lines immediately.
+
+        Args:
+            message: Text to write
+
+        Returns:
+            Number of characters written
+        """
+        if message and message != "\n":
+            # Buffer the message
+            self.buffer += message
+
+            # If we have complete lines, log them
+            if "\n" in self.buffer:
+                lines = self.buffer.split("\n")
+                # Log all complete lines
+                for line in lines[:-1]:
+                    if line.strip():
+                        self.logger.log(self.level, "[crawl4ai] %s", line.strip())
+                # Keep the incomplete line in buffer
+                self.buffer = lines[-1]
+
+        return len(message)
+
+    def flush(self) -> None:
+        """Flush any remaining buffered content."""
+        if self.buffer.strip():
+            self.logger.log(self.level, "[crawl4ai] %s", self.buffer.strip())
+            self.buffer = ""
 
 
 class CrawlRunner:
@@ -65,41 +115,86 @@ class CrawlRunner:
         """
         run_config = None  # Initialize to avoid UnboundLocalError
         try:
+            logger.debug(
+                "[C4A-MCP | Logic | Run] Starting crawl | data: {url: %s, has_script: %s}",
+                inputs.url,
+                inputs.script is not None,
+            )
+            # Flush logger handlers to ensure logs appear immediately
+            for handler in logger.handlers:
+                if hasattr(handler, "flush"):
+                    handler.flush()
+
             # Build CrawlerRunConfig with 3-layer merge:
             # defaults → file overrides → tool overrides
+            logger.debug("[C4A-MCP | Logic | Run] Building run config")
             run_config = self._build_run_config(inputs.config)
+            logger.debug(
+                "[C4A-MCP | Logic | Run] Run config built | data: {has_deep_crawl: %s, has_extraction: %s, timeout: %s}",
+                run_config.deep_crawl_strategy is not None,
+                run_config.extraction_strategy is not None,
+                run_config.page_timeout,
+            )
+            # Flush after config build
+            for handler in logger.handlers:
+                if hasattr(handler, "flush"):
+                    handler.flush()
 
             # NOTE(REVIEWER): crawl4ai supports c4a-script DSL directly via js_code parameter.
             # The library automatically processes c4a-script commands (GO, CLICK, WAIT, etc.)
             # as shown in doc/c4a.md examples.
             if inputs.script:
                 run_config.js_code = inputs.script  # Pass c4a-script DSL to js_code
+                logger.debug(
+                    "[C4A-MCP | Logic | Run] Script attached | data: {script_length: %d}",
+                    len(inputs.script),
+                )
 
             # Use pre-created browser_config from constructor
             # NOTE(REVIEWER): Reusing browser_config is efficient.
             # Verified: AsyncWebCrawler treats config as read-only during initialization.
-            # CRITICAL: Redirect stdout/stderr to prevent crawl4ai progress messages
-            # from breaking MCP JSON-RPC protocol (which expects only JSON on stdout)
-            stdout_capture = io.StringIO()
-            stderr_capture = io.StringIO()
-            
-            with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
+
+            # CRITICAL: Redirect stdout/stderr to logger for real-time streaming
+            # This prevents crawl4ai progress messages from breaking MCP JSON-RPC protocol
+            # while still allowing visibility into crawl progress
+            logger.debug("[C4A-MCP | Logic | Run] Setting up log streaming")
+            stdout_logger = LoggerWriter(logger, logging.DEBUG)
+            stderr_logger = LoggerWriter(logger, logging.WARNING)
+
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+
+            try:
+                sys.stdout = stdout_logger
+                sys.stderr = stderr_logger
+
+                # Flush before starting crawler
+                for handler in logger.handlers:
+                    if hasattr(handler, "flush"):
+                        handler.flush()
+
+                logger.debug("[C4A-MCP | Logic | Run] Initializing AsyncWebCrawler")
                 async with AsyncWebCrawler(config=self.browser_config) as crawler:
+                    logger.debug("[C4A-MCP | Logic | Run] Starting crawler.arun()")
+                    # Flush before arun
+                    for handler in logger.handlers:
+                        if hasattr(handler, "flush"):
+                            handler.flush()
+
                     crawl_result: CrawlResult = await crawler.arun(inputs.url, config=run_config)
-            
-            # Log captured output for debugging (but don't send to stdout/stderr)
-            captured_stdout = stdout_capture.getvalue()
-            captured_stderr = stderr_capture.getvalue()
-            if captured_stdout:
-                logger.debug(
-                    "[C4A-MCP | Logic] Captured crawl4ai stdout | data: {output: %s}",
-                    captured_stdout[:500],  # Limit log size
-                )
-            if captured_stderr:
-                logger.debug(
-                    "[C4A-MCP | Logic] Captured crawl4ai stderr | data: {output: %s}",
-                    captured_stderr[:500],  # Limit log size
-                )
+                    logger.debug("[C4A-MCP | Logic | Run] crawler.arun() completed")
+            finally:
+                # Restore original stdout/stderr
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+                # Flush any remaining buffered content
+                stdout_logger.flush()
+                stderr_logger.flush()
+                logger.debug("[C4A-MCP | Logic | Run] Log streaming restored")
+                # Final flush
+                for handler in logger.handlers:
+                    if hasattr(handler, "flush"):
+                        handler.flush()
 
             # Normalize list responses from deep crawl (returns list[CrawlResult])
             if isinstance(crawl_result, list):
@@ -139,7 +234,11 @@ class CrawlRunner:
                 "data: {has_markdown: %s, markdown_is_none: %s, markdown_type: %s}",
                 hasattr(crawl_result, "markdown"),
                 not hasattr(crawl_result, "markdown") or crawl_result.markdown is None,
-                type(getattr(crawl_result, "markdown", None)).__name__ if hasattr(crawl_result, "markdown") else "N/A",
+                (
+                    type(getattr(crawl_result, "markdown", None)).__name__
+                    if hasattr(crawl_result, "markdown")
+                    else "N/A"
+                ),
             )
 
             if crawl_result.markdown:
@@ -147,8 +246,7 @@ class CrawlRunner:
                 if isinstance(crawl_result.markdown, str):
                     markdown_content = crawl_result.markdown
                     logger.debug(
-                        "[C4A-MCP | Logic] Markdown is string | "
-                        "data: {length: %d, preview: %s}",
+                        "[C4A-MCP | Logic] Markdown is string | " "data: {length: %d, preview: %s}",
                         len(markdown_content),
                         markdown_content[:200] if markdown_content else "",
                     )
@@ -178,7 +276,11 @@ class CrawlRunner:
                     crawl_result.url,
                     crawl_result.status_code,
                     hasattr(crawl_result, "html"),
-                    len(crawl_result.html) if hasattr(crawl_result, "html") and crawl_result.html else 0,
+                    (
+                        len(crawl_result.html)
+                        if hasattr(crawl_result, "html") and crawl_result.html
+                        else 0
+                    ),
                 )
 
             return RunnerOutput(
@@ -247,6 +349,12 @@ class CrawlRunner:
         Returns:
             CrawlerRunConfig instance ready for crawl (with strategies created from parameters)
         """
+        logger.debug(
+            "[C4A-MCP | Logic | Build Config] Starting config build | "
+            "data: {has_tool_config: %s}",
+            tool_config_dict is not None,
+        )
+
         # Start with defaults (already includes file overrides from server.py)
         merged = self.default_crawler_config.model_copy()
 
@@ -261,7 +369,14 @@ class CrawlRunner:
             extraction_params = tool_config_dict.pop("extraction_strategy_params", None)
 
             logger.debug(
-                "[C4A-MCP | Logic] Applying tool-level config overrides | "
+                "[C4A-MCP | Logic | Build Config] Extracted strategy params | "
+                "data: {has_crawling_params: %s, has_extraction_params: %s}",
+                crawling_params is not None,
+                extraction_params is not None,
+            )
+
+            logger.debug(
+                "[C4A-MCP | Logic | Build Config] Applying tool-level config overrides | "
                 "data: {overrides: %s}",
                 tool_config_dict,
             )
@@ -276,30 +391,61 @@ class CrawlRunner:
         # Create strategies from parameters using factory functions
         if crawling_params:
             strategy_type = crawling_params.pop("strategy_type")
+            logger.debug(
+                "[C4A-MCP | Logic | Build Config] Creating crawling strategy | "
+                "data: {strategy_type: %s, params: %s}",
+                strategy_type,
+                crawling_params,
+            )
             kwargs["deep_crawl_strategy"] = crawling_factory.create_crawling_strategy(
                 strategy_type, crawling_params
             )
             logger.debug(
-                "[C4A-MCP | Logic] Created crawling strategy from parameters | "
-                "data: {strategy_type: %s}",
+                "[C4A-MCP | Logic | Build Config] Crawling strategy created | "
+                "data: {strategy_type: %s, instance: %s}",
                 strategy_type,
+                type(kwargs["deep_crawl_strategy"]).__name__,
             )
 
         if extraction_params:
             strategy_type = extraction_params.pop("strategy_type")
             config = extraction_params.get("config")
+
+            # Log extraction schema details for CSS strategy
+            # NOTE: config is a Pydantic model (ExtractionConfigCss), not a dict
+            if strategy_type == "css" and config:
+                # Access Pydantic attribute directly (has alias "schema" too)
+                schema = config.extraction_schema
+                if schema:
+                    logger.debug(
+                        "[C4A-MCP | Logic | Build Config] CSS extraction schema | "
+                        "data: {base_selector: %s, fields_count: %d, field_names: %s}",
+                        schema.get("baseSelector"),
+                        len(schema.get("fields", [])),
+                        [f.get("name") for f in schema.get("fields", [])],
+                    )
+
+            logger.debug(
+                "[C4A-MCP | Logic | Build Config] Creating extraction strategy | "
+                "data: {strategy_type: %s}",
+                strategy_type,
+            )
             kwargs["extraction_strategy"] = extraction_factory.create_extraction_strategy(
                 strategy_type, config
             )
             logger.debug(
-                "[C4A-MCP | Logic] Created extraction strategy from parameters | "
-                "data: {strategy_type: %s}",
+                "[C4A-MCP | Logic | Build Config] Extraction strategy created | "
+                "data: {strategy_type: %s, instance: %s}",
                 strategy_type,
+                type(kwargs["extraction_strategy"]).__name__,
             )
 
         logger.debug(
-            "[C4A-MCP | Logic] Built CrawlerRunConfig | data: {kwargs: %s}",
-            kwargs,
+            "[C4A-MCP | Logic | Build Config] Config build complete | "
+            "data: {has_deep_crawl: %s, has_extraction: %s, timeout: %s}",
+            "deep_crawl_strategy" in kwargs,
+            "extraction_strategy" in kwargs,
+            kwargs.get("page_timeout"),
         )
 
         # Create CrawlerRunConfig

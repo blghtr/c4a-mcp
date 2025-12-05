@@ -48,7 +48,9 @@ def create_extraction_strategy(
         return None
 
     if config is None:
-        raise ValueError(f"extraction_strategy_config required when extraction_strategy='{strategy_type}'")
+        raise ValueError(
+            f"extraction_strategy_config required when extraction_strategy='{strategy_type}'"
+        )
 
     strategy_type_lower = strategy_type.lower()
 
@@ -75,8 +77,7 @@ def create_extraction_strategy(
             return _create_css_strategy(config)
         else:
             raise ValueError(
-                f"Unsupported extraction_strategy: {strategy_type}. "
-                "Supported: 'regex', 'css'"
+                f"Unsupported extraction_strategy: {strategy_type}. " "Supported: 'regex', 'css'"
             )
     except ImportError as e:
         logger.error(
@@ -94,7 +95,7 @@ def _create_regex_strategy(config: ExtractionConfig) -> Any:
     """Create RegexExtractionStrategy from config."""
     if not isinstance(config, ExtractionConfigRegex):
         raise ValueError(f"Expected ExtractionConfigRegex, got {type(config).__name__}")
-    
+
     built_in_patterns = config.built_in_patterns
     custom_patterns = config.custom_patterns
     input_format = config.input_format
@@ -134,18 +135,17 @@ def _map_pattern_names_to_flags(pattern_names: list[str]) -> int:
         "All": RegexExtractionStrategy.All,
     }
 
-    # FIXME(REVIEWER): pattern names are treated as case-sensitive, so valid values
-    # like "email" or "url" (common in API payloads) raise ValueError even though
-    # crawl4ai accepts them when OR'ed directly. Consider normalizing to title case
-    # before lookup to reduce avoidable user-facing errors.
+    # Normalize pattern names to title case for case-insensitive matching
+    # This accepts common variants like "email", "url", "ipv4" etc.
     result = RegexExtractionStrategy.Nothing
     for name in pattern_names:
-        if name not in flag_map:
+        name_normalized = name.title()  # "email" -> "Email", "ipv4" -> "Ipv4"
+        if name_normalized not in flag_map:
             raise ValueError(
                 f"Unknown built-in pattern: {name}. "
                 f"Valid patterns: {', '.join(flag_map.keys())}"
             )
-        result |= flag_map[name]
+        result |= flag_map[name_normalized]
 
     return result
 
@@ -154,8 +154,5 @@ def _create_css_strategy(config: ExtractionConfig) -> Any:
     """Create JsonCssExtractionStrategy from config."""
     if not isinstance(config, ExtractionConfigCss):
         raise ValueError(f"Expected ExtractionConfigCss, got {type(config).__name__}")
-    
+
     return JsonCssExtractionStrategy(schema=config.extraction_schema)
-
-
-
