@@ -12,9 +12,11 @@ import sys
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastmcp import FastMCP, Context
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from pydantic import Field
 
 from .config_models import AppConfig
 from .logging_config import setup_logging
@@ -188,19 +190,47 @@ mcp.add_middleware(LifespanStateMiddleware())
 # FastMCP will automatically generate MCP tool schema from function signature.
 @mcp.tool
 async def runner(
-    url: str, script: str | None = None, config: dict | None = None, ctx: Context | None = None
+    url: Annotated[
+        str,
+        Field(description="The starting URL (http/https)."),
+    ],
+    script: Annotated[
+        str | None,
+        Field(description="Optional c4a-script DSL or JavaScript code for page interactions."),
+    ] = None,
+    config: Annotated[
+        dict | None,
+        Field(
+            description=(
+                "Optional configuration dict mapping to CrawlerRunConfig "
+                "(css_selector, wait_for, timeout, strategies, etc.)."
+            )
+        ),
+    ] = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Executes a web crawl session with optional interaction script and configuration.
 
-    This tool uses crawl4ai to navigate web pages, interact with dynamic content (click buttons,
-    fill forms, wait for elements), and extract content as markdown. It supports complex
-    multi-step workflows via c4a-script DSL and fine-grained extraction control via config.
+    This tool uses crawl4ai to navigate pages, interact (click, type, wait),
+    and extract markdown. Supports c4a-script DSL and fine-grained config.
 
-    Args:
-        url: The starting URL (must use http:// or https:// protocol).
-        script: Optional c4a-script DSL string for browser interactions. See C4A-SCRIPT REFERENCE below.
-        config: Optional configuration dict for extraction behavior. See CONFIG KEYS REFERENCE below.
+    Config keys (all optional):
+    - timeout
+    - css_selector, word_count_threshold, wait_for
+    - exclude_external_links, exclude_social_media_links, bypass_cache
+    - extraction_strategy: regex | css | None
+    - extraction_strategy_config / schema:
+        * regex: built_in_patterns | custom_patterns, input_format.
+          built_in_patterns: Email, PhoneUS, PhoneIntl, Url, IPv4, IPv6, Uuid,
+          Currency, Percentage, Number, DateIso, DateUS, Time24h, PostalUS, PostalUK,
+          HexColor, TwitterHandle, Hashtag, MacAddr, Iban, CreditCard, All.
+        * css: schema/extraction_schema {name, baseSelector, fields}
+    - advanced content/navigation:
+      excluded_tags, excluded_selector, only_text, remove_forms, process_iframes,
+      wait_until, wait_for_images, delay_before_return_html, check_robots_txt,
+      scan_full_page, scroll_delay, remove_overlay_elements, simulate_user,
+      override_navigator, magic
 
     Returns:
         JSON string with structure:

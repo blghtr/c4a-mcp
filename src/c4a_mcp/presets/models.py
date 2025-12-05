@@ -271,6 +271,11 @@ class AdaptiveCrawlInput(BaseModel):
     exclude_external_links: bool | None = None
     exclude_social_media_links: bool | None = None
     bypass_cache: bool | None = None
+    # Optional runner-level config (strategy overrides, adaptive_config_params, timeout)
+    config: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional runner config (strategy, adaptive_config_params, timeout).",
+    )
     
     @field_validator("url")
     @classmethod

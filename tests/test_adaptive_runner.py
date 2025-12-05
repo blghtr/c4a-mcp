@@ -20,9 +20,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
-from c4a_mcp.adaptive_runner import AdaptiveCrawlRunner, AdaptiveRunnerInput
+from c4a_mcp.adaptive_runner import AdaptiveCrawlRunner
 from c4a_mcp.models import RunnerOutput
 from c4a_mcp.config_models import CrawlerConfigYAML
+from c4a_mcp.presets.models import AdaptiveEmbeddingInput, AdaptiveStatisticalInput
 from crawl4ai import BrowserConfig
 
 
@@ -117,16 +118,11 @@ async def test_run_success(
     mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
     # Create input
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveStatisticalInput(
         url="https://example.com",
         query="test query",
-        config={
-            "strategy": "statistical",
-            "adaptive_config_params": {
-                "confidence_threshold": 0.7,
-                "max_pages": 20,
-            },
-        },
+        confidence_threshold=0.7,
+        max_pages=20,
     )
     
     # Execute
@@ -200,10 +196,9 @@ async def test_run_with_string_markdown(
     mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
     mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveStatisticalInput(
         url="https://example.com",
         query="test",
-        config={"strategy": "statistical", "adaptive_config_params": {}},
     )
     
     result = await adaptive_runner.run(inputs)
@@ -247,10 +242,9 @@ async def test_run_error_handling(
     mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
     mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveStatisticalInput(
         url="https://example.com",
         query="test",
-        config={"strategy": "statistical", "adaptive_config_params": {}},
     )
     
     result = await adaptive_runner.run(inputs)
@@ -295,10 +289,9 @@ async def test_run_timeout_error(
     mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
     mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveStatisticalInput(
         url="https://example.com",
         query="test",
-        config={"strategy": "statistical", "adaptive_config_params": {}},
     )
     
     result = await adaptive_runner.run(inputs)
@@ -341,10 +334,9 @@ async def test_run_embedding_error(
     mock_redirect_stderr.return_value.__enter__ = MagicMock(return_value=None)
     mock_redirect_stderr.return_value.__exit__ = MagicMock(return_value=None)
     
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveEmbeddingInput(
         url="https://example.com",
         query="test",
-        config={"strategy": "embedding", "adaptive_config_params": {}},
     )
     
     result = await adaptive_runner.run(inputs)
@@ -356,11 +348,11 @@ async def test_run_embedding_error(
 @pytest.mark.asyncio
 async def test_run_invalid_strategy(adaptive_runner):
     """Test validation of invalid strategy."""
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveStatisticalInput(
         url="https://example.com",
         query="test",
-        config={"strategy": "invalid_strategy", "adaptive_config_params": {}},
     )
+    inputs = inputs.model_copy(update={"config": {"strategy": "invalid_strategy"}})
     
     result = await adaptive_runner.run(inputs)
     
@@ -372,11 +364,11 @@ async def test_run_invalid_strategy(adaptive_runner):
 @pytest.mark.asyncio
 async def test_run_invalid_adaptive_params_type(adaptive_runner):
     """Test validation of invalid adaptive_params type."""
-    inputs = AdaptiveRunnerInput(
+    inputs = AdaptiveStatisticalInput(
         url="https://example.com",
         query="test",
-        config={"strategy": "statistical", "adaptive_config_params": "not_a_dict"},
     )
+    inputs = inputs.model_copy(update={"config": {"strategy": "statistical", "adaptive_config_params": "not_a_dict"}})
     
     result = await adaptive_runner.run(inputs)
     

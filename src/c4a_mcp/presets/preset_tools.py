@@ -21,14 +21,15 @@ All tools use Context injection to access CrawlRunner from lifespan state.
 import importlib.util
 import json
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from ..adaptive_runner import AdaptiveRunnerInput
+    from ..adaptive_runner import AdaptiveRunnerInput  # pylint: disable=import-outside-toplevel
 
 from ..models import RunnerInput
 from .models import (
@@ -75,23 +76,43 @@ def _build_run_config_from_preset(
 
 
 async def crawl_deep(
-    params: DeepCrawlPresetInput,
-    script: str | None = None,
+    params: Annotated[
+        DeepCrawlPresetInput,
+        Field(description="Validated deep crawl parameters (url, depth, pages, config fields)"),
+    ],
+    script: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional c4a-script DSL or JavaScript code for page interactions "
+                "(GO, WAIT, CLICK, etc.)"
+            )
+        ),
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
     """
     Perform BFS deep crawling of a website.
 
-    Accepts a structured Pydantic payload (`DeepCrawlPresetInput`) so FastMCP
-    exposes the full nested schema (crawler config + extraction config).
+    Pydantic payload (`DeepCrawlPresetInput`) — все ключи доступны в схеме:
+    - url (http/https), max_depth, max_pages, include_external
+    - extraction_strategy: regex | css | None
+    - extraction_strategy_config:
+        * regex: built_in_patterns | custom_patterns, input_format
+          built_in_patterns допустимы: Email, PhoneUS, PhoneIntl, Url, IPv4, IPv6,
+          Uuid, Currency, Percentage, Number, DateIso, DateUS, Time24h, PostalUS,
+          PostalUK, HexColor, TwitterHandle, Hashtag, MacAddr, Iban, CreditCard, All.
+        * css: schema/extraction_schema {name, baseSelector, fields}
+    - content/navigation: timeout, css_selector, word_count_threshold, wait_for,
+      excluded_tags/excluded_selector, only_text, remove_forms, process_iframes,
+      exclude_external_links, exclude_social_media_links, wait_until,
+      wait_for_images, delay_before_return_html, check_robots_txt, scan_full_page,
+      scroll_delay, remove_overlay_elements, simulate_user, override_navigator,
+      magic, bypass_cache
+    script: опциональный c4a-script/JS для взаимодействия.
+    ctx: FastMCP context (инжектируется).
 
-    Args:
-        params: Validated deep crawl parameters (url, depth, pages, config fields)
-        script: Optional c4a-script DSL or JavaScript code for page interactions
-        ctx: FastMCP context (injected)
-
-    Returns:
-        JSON string with RunnerOutput structure (markdown, metadata, error)
+    Returns: JSON RunnerOutput (markdown, metadata, error).
     """
     # Access crawl_runner from lifespan state
     if ctx is None:
@@ -146,23 +167,28 @@ async def crawl_deep(
 
 
 async def adaptive_crawl_statistical(
-    params: AdaptiveStatisticalInput,
+    params: Annotated[
+        AdaptiveStatisticalInput,
+        Field(description="Adaptive crawl parameters (url, query, thresholds, config)"),
+    ],
     ctx: Context | None = None,
 ) -> str:
     """
     Perform adaptive crawling using statistical strategy with structured params.
     
-    Args:
-        params: Adaptive crawl parameters (url, query, thresholds, config)
-        ctx: FastMCP Context (injected automatically)
+    Параметры (доступны в схеме):
+    - url, query
+    - confidence_threshold, max_pages, top_k_links, min_gain_threshold
+    - content/navigation: timeout, css_selector, word_count_threshold, wait_for,
+      exclude_external_links, exclude_social_media_links, bypass_cache
+    - config (опционально): strategy/ adaptive_config_params/ timeout override
+    ctx: FastMCP Context.
     
-    Returns:
-        JSON string with RunnerOutput structure (markdown, metadata with confidence/metrics, error)
+    Returns: JSON RunnerOutput (markdown, metadata c confidence/metrics, error).
     """
     # Access adaptive_crawl_runner from lifespan state
     if ctx is None:
         raise ValueError("Context is required for preset tools")
-    from ..adaptive_runner import AdaptiveRunnerInput
     adaptive_runner = ctx.get_state("adaptive_crawl_runner")
     if adaptive_runner is None:
         raise ValueError(
@@ -196,34 +222,43 @@ async def adaptive_crawl_statistical(
     if input_data.timeout is not None:
         config_dict["timeout"] = int(input_data.timeout)
     
-    # Execute via AdaptiveCrawlRunner
-    runner_input = AdaptiveRunnerInput(
-        url=input_data.url, query=input_data.query, config=config_dict
+    # Execute via AdaptiveCrawlRunner (accepts Pydantic input directly)
+    result = await adaptive_runner.run(
+        input_data.model_copy(update={"config": config_dict})
     )
-    result = await adaptive_runner.run(runner_input)
     
     return result.model_dump_json()
 
 
 async def adaptive_crawl_embedding(
-    params: AdaptiveEmbeddingInput,
+    params: Annotated[
+        AdaptiveEmbeddingInput,
+        Field(description="Adaptive crawl parameters (url, query, embedding, thresholds)"),
+    ],
     ctx: Context | None = None,
 ) -> str:
     """
     Perform adaptive crawling using embedding strategy with structured params.
     
-    Args:
-        params: Adaptive crawl parameters (url, query, embedding settings, thresholds)
-        ctx: FastMCP Context (injected automatically)
+    Параметры (доступны в схеме):
+    - url, query
+    - confidence_threshold, max_pages, top_k_links, min_gain_threshold, timeout
+    - embedding_model, embedding_llm_config, n_query_variations,
+      embedding_coverage_radius, embedding_k_exp,
+      embedding_min_relative_improvement, embedding_validation_min_score,
+      embedding_min_confidence_threshold, embedding_overlap_threshold,
+      embedding_quality_min_confidence, embedding_quality_max_confidence
+    - content/navigation: css_selector, word_count_threshold, wait_for,
+      exclude_external_links, exclude_social_media_links, bypass_cache
+    - config (опционально): strategy/ adaptive_config_params/ timeout override
+    ctx: FastMCP Context.
     
-    Returns:
-        JSON string with RunnerOutput structure (markdown, metadata with confidence/metrics, error)
+    Returns: JSON RunnerOutput (markdown, metadata c confidence/metrics, error).
     """
     # Access adaptive_crawl_runner from lifespan state
     # Check context FIRST before checking dependencies
     if ctx is None:
         raise ValueError("Context is required for preset tools")
-    from ..adaptive_runner import AdaptiveRunnerInput
     adaptive_runner = ctx.get_state("adaptive_crawl_runner")
     if adaptive_runner is None:
         raise ValueError(
@@ -286,27 +321,43 @@ async def adaptive_crawl_embedding(
     if input_data.timeout is not None:
         config_dict["timeout"] = int(input_data.timeout)
     
-    # Execute via AdaptiveCrawlRunner
-    runner_input = AdaptiveRunnerInput(
-        url=input_data.url, query=input_data.query, config=config_dict
+    # Execute via AdaptiveCrawlRunner (accepts Pydantic input directly)
+    result = await adaptive_runner.run(
+        input_data.model_copy(update={"config": config_dict})
     )
-    result = await adaptive_runner.run(runner_input)
     
     return result.model_dump_json()
 
 
 async def crawl_deep_smart(
-    params: CrawlDeepSmartInput,
-    script: str | None = None,
+    params: Annotated[
+        CrawlDeepSmartInput,
+        Field(description="Smart deep crawl parameters (url, keywords, config)"),
+    ],
+    script: Annotated[
+        str | None,
+        Field(description="Optional c4a-script DSL or JavaScript code for page interactions"),
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
     """
     Perform best-first deep crawling with keyword prioritization.
 
-    Args:
-        params: Structured smart deep crawl parameters (url, keywords, config)
-        script: Optional c4a-script DSL or JavaScript code for page interactions
-        ctx: FastMCP context (injected)
+    Параметры (схема):
+    - url, keywords, max_depth, max_pages, include_external
+    - extraction_strategy + extraction_strategy_config (regex/css, как в crawl_deep)
+      * regex built_in_patterns допустимы: Email, PhoneUS, PhoneIntl, Url, IPv4, IPv6,
+        Uuid, Currency, Percentage, Number, DateIso, DateUS, Time24h, PostalUS, PostalUK,
+        HexColor, TwitterHandle, Hashtag, MacAddr, Iban, CreditCard, All.
+      * css: schema/extraction_schema {name, baseSelector, fields}
+    - content/navigation: timeout, css_selector, word_count_threshold, wait_for,
+      excluded_tags/excluded_selector, only_text, remove_forms, process_iframes,
+      exclude_external_links, exclude_social_media_links, wait_until,
+      wait_for_images, delay_before_return_html, check_robots_txt, scan_full_page,
+      scroll_delay, remove_overlay_elements, simulate_user, override_navigator,
+      magic, bypass_cache
+    script: опциональный c4a-script/JS.
+    ctx: FastMCP context.
 
     Returns:
         JSON string with RunnerOutput structure (markdown, metadata, error)
@@ -367,17 +418,34 @@ async def crawl_deep_smart(
 
 
 async def scrape_page(
-    params: ScrapePagePresetInput,
-    script: str | None = None,
+    params: Annotated[
+        ScrapePagePresetInput,
+        Field(description="Scrape parameters (url plus optional extraction config)"),
+    ],
+    script: Annotated[
+        str | None,
+        Field(description="Optional c4a-script DSL or JavaScript code for page interactions"),
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
     """
     Scrape content from a single page.
 
-    Args:
-        params: Structured scrape parameters (url plus optional extraction config)
-        script: Optional c4a-script DSL or JavaScript code for page interactions
-        ctx: FastMCP context (injected)
+    Параметры (схема):
+    - url
+    - extraction_strategy + extraction_strategy_config (regex/css)
+      * regex built_in_patterns: Email, PhoneUS, PhoneIntl, Url, IPv4, IPv6, Uuid,
+        Currency, Percentage, Number, DateIso, DateUS, Time24h, PostalUS, PostalUK,
+        HexColor, TwitterHandle, Hashtag, MacAddr, Iban, CreditCard, All.
+      * css: schema/extraction_schema {name, baseSelector, fields}
+    - content/navigation: timeout, css_selector, word_count_threshold, wait_for,
+      excluded_tags/excluded_selector, only_text, remove_forms, process_iframes,
+      exclude_external_links, exclude_social_media_links, wait_until,
+      wait_for_images, delay_before_return_html, check_robots_txt, scan_full_page,
+      scroll_delay, remove_overlay_elements, simulate_user, override_navigator,
+      magic, bypass_cache
+    script: опциональный c4a-script/JS.
+    ctx: FastMCP context.
 
     Returns:
         JSON string with RunnerOutput structure (markdown, metadata, error)

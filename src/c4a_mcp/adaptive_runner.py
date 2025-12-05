@@ -3,7 +3,7 @@
 # :relates-to: uses: "crawl4ai.AdaptiveCrawler", uses: "crawl4ai.AsyncWebCrawler", uses: "config_models.CrawlerConfigYAML", depends-on: "presets.adaptive_factory"
 # :rationale: "Encapsulates adaptive crawling logic using crawl4ai's AdaptiveCrawler. Uses PatchedAdaptiveCrawler to fix hardcoded 5-second timeout for link preview extraction. Separate from CrawlRunner due to different API (digest() vs arun())."
 # :references: PRD: "F004 extension", SPEC: "SPEC-F004 extension"
-# :contract: pre: "Valid AdaptiveRunnerInput with query and strategy params", post: "Returns RunnerOutput with markdown, confidence, and metrics in metadata"
+# :contract: pre: "Valid AdaptiveStatisticalInput or AdaptiveEmbeddingInput", post: "Returns RunnerOutput with markdown, confidence, and metrics in metadata"
 # :decision_cache: "Separate class from CrawlRunner to maintain single responsibility - different API pattern [ARCH-014]. PatchedAdaptiveCrawler fixes timeout issue for slow websites [ARCH-018]"
 # LLM:END
 
@@ -20,7 +20,7 @@ import io
 import logging
 import traceback
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from crawl4ai import AdaptiveCrawler, AsyncWebCrawler, BrowserConfig
 from crawl4ai.async_configs import CrawlerRunConfig, LinkPreviewConfig
@@ -30,6 +30,7 @@ from crawl4ai.models import CrawlResult
 from .config_models import CrawlerConfigYAML
 from .models import RunnerOutput
 from .presets.adaptive_factory import create_adaptive_config
+from .presets.models import AdaptiveEmbeddingInput, AdaptiveStatisticalInput
 
 logger = logging.getLogger(__name__)
 
@@ -227,28 +228,6 @@ class PatchedAdaptiveCrawler(AdaptiveCrawler):
         return strategy
 
 
-class AdaptiveRunnerInput:
-    """
-    Input model for adaptive crawling.
-    
-    This is a simple data class (not Pydantic) to match existing pattern.
-    Validation happens in preset tools before creating this.
-    """
-    
-    # TODO(REVIEWER): Consider using Pydantic BaseModel for AdaptiveRunnerInput to get automatic validation,
-    # type checking, and consistency with other input models. Current approach relies on preset tools for validation,
-    # which could lead to inconsistent validation if used directly.
-    def __init__(
-        self,
-        url: str,
-        query: str,
-        config: dict[str, Any] | None = None,
-    ):
-        self.url = url
-        self.query = query
-        self.config = config or {}
-
-
 class AdaptiveCrawlRunner:
     """
     Executes adaptive crawl sessions using crawl4ai's AdaptiveCrawler.
@@ -282,7 +261,9 @@ class AdaptiveCrawlRunner:
             browser_config.headless,
         )
     
-    async def run(self, inputs: AdaptiveRunnerInput) -> RunnerOutput:
+    async def run(
+        self, inputs: Union[AdaptiveStatisticalInput, AdaptiveEmbeddingInput]
+    ) -> RunnerOutput:
         """
         Execute adaptive crawl with query-based stopping.
         
@@ -294,8 +275,10 @@ class AdaptiveCrawlRunner:
         """
         try:
             # Extract strategy and parameters from config
-            strategy = inputs.config.get("strategy", "statistical")
-            adaptive_params = inputs.config.get("adaptive_config_params", {})
+            # Preserve dict-like config access for backward compatibility
+            config_dict = inputs.config or {}
+            strategy = config_dict.get("strategy", "statistical")
+            adaptive_params = config_dict.get("adaptive_config_params", {})
             
             # Validate config structure
             if strategy not in ("statistical", "embedding"):
@@ -316,9 +299,9 @@ class AdaptiveCrawlRunner:
             link_preview_timeout = 30  # Default: 30 seconds for head extraction
             page_timeout_ms = 60000  # Default: 60 seconds for page loading
             
-            if inputs.config.get("timeout") is not None:
+            if config_dict.get("timeout") is not None:
                 # User-provided timeout in seconds
-                user_timeout = int(inputs.config["timeout"])
+                user_timeout = int(config_dict["timeout"])
                 link_preview_timeout = user_timeout
                 page_timeout_ms = user_timeout * 1000
             elif self.default_crawler_config.timeout is not None:
