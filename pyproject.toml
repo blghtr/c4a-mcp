@@ -17,6 +17,7 @@ dependencies = [
     "pydantic",
     "cachetools",
     "python-dotenv",
+    "psutil>=6.0.0",
 ]
 
 [dependency-groups]

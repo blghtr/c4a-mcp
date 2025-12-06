@@ -8,6 +8,8 @@ import asyncio
 import logging
 import weakref
 
+import psutil
+
 _registry: set[weakref.ref] = set()
 
 
@@ -54,6 +56,12 @@ async def close_crawler(
     try:
         await _await_with_timeout(crawler.__aexit__(None, None, None), timeout)
         return
+    except asyncio.TimeoutError:
+        logger.warning(
+            "[C4A-MCP | Infra | Crawler Registry] __aexit__ timed out (likely connection closed) | "
+            "data: {timeout: %.1f}s",
+            timeout,
+        )
     except Exception as e:
         logger.warning(
             "[C4A-MCP | Infra | Crawler Registry] __aexit__ failed, trying fallbacks | "
@@ -97,4 +105,68 @@ async def cleanup_all(logger: logging.Logger, timeout: float = 10.0) -> None:
             continue
         await close_crawler(crawler, logger, timeout=timeout)
         _registry.discard(ref)
+
+
+def _is_playwright_like(proc: psutil.Process) -> bool:
+    """Heuristic to detect playwright/Chrome child processes spawned by this service."""
+    try:
+        name = (proc.name() or "").lower()
+    except psutil.Error:
+        name = ""
+    match_tokens = ("playwright", "chrome", "chromium", "msedge", "node")
+    if any(tok in name for tok in match_tokens):
+        return True
+    try:
+        cmd = " ".join(proc.cmdline()).lower()
+        if any(tok in cmd for tok in match_tokens):
+            return True
+    except psutil.Error:
+        pass
+    return False
+
+
+def kill_child_browsers(logger: logging.Logger, timeout: float = 5.0) -> None:
+    """
+    Kill lingering playwright/browser child processes owned by the current process.
+
+    This is a last-resort cleanup for cases where cancellation or crashes leave
+    Playwright/Chrome descendants running.
+    """
+    try:
+        parent = psutil.Process()
+    except psutil.Error:
+        return
+
+    targets = [p for p in parent.children(recursive=True) if _is_playwright_like(p)]
+    if not targets:
+        return
+
+    for p in targets:
+        try:
+            logger.warning(
+                "[C4A-MCP | Infra | Crawler Registry] Terminating stray process | data: {pid: %d, name: %s}",
+                p.pid,
+                p.name(),
+            )
+            p.terminate()
+        except psutil.NoSuchProcess:
+            continue
+        except psutil.Error as e:
+            logger.warning(
+                "[C4A-MCP | Infra | Crawler Registry] Failed to terminate process | data: {pid: %s, error: %s}",
+                getattr(p, "pid", "unknown"),
+                str(e),
+            )
+
+    _, alive = psutil.wait_procs(targets, timeout=timeout)
+    for p in alive:
+        try:
+            logger.warning(
+                "[C4A-MCP | Infra | Crawler Registry] Killing stubborn process | data: {pid: %d, name: %s}",
+                p.pid,
+                p.name(),
+            )
+            p.kill()
+        except psutil.Error:
+            continue
 

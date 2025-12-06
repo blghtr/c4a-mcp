@@ -10,6 +10,21 @@ import sys
 from pathlib import Path
 
 
+class ConsecutiveDedupFilter(logging.Filter):
+    """Filter that drops consecutive duplicate log messages (same level+message)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._last: tuple[int, str] | None = None
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        key = (record.levelno, record.getMessage())
+        if key == self._last:
+            return False
+        self._last = key
+        return True
+
+
 def setup_logging(log_file_path: Path | None = None) -> None:
     """
     Configure application-wide logging.
@@ -47,4 +62,10 @@ def setup_logging(log_file_path: Path | None = None) -> None:
             ),  # Persistent debugging
         ],
     )
+
+    # Attach a dedup filter to all handlers to suppress immediate duplicate lines.
+    dedup_filter = ConsecutiveDedupFilter()
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        handler.addFilter(dedup_filter)
 

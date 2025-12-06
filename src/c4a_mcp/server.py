@@ -21,7 +21,7 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from pydantic import Field
 
 from .config_models import AppConfig
-from .logging_config import setup_logging
+from .logging_utils import setup_logging
 from .adaptive_runner import AdaptiveCrawlRunner
 from .models import RunnerInput, RunnerOutput
 from .presets.preset_tools import (
@@ -32,7 +32,7 @@ from .presets.preset_tools import (
     scrape_page,
 )
 from .runner_tool import CrawlRunner
-from .crawler_registry import cleanup_all as cleanup_crawlers
+from .crawler_registry import cleanup_all as cleanup_crawlers, kill_child_browsers
 
 # Configure logging
 setup_logging()
@@ -103,8 +103,8 @@ _lifespan_state: dict | None = None
 class LifespanStateMiddleware(Middleware):
     """
     Middleware that injects lifespan state into Context for each request.
-    
-    This allows tools to access server-scoped state (like crawl_runner) 
+
+    This allows tools to access server-scoped state (like crawl_runner)
     via Context.get_state().
     """
 
@@ -114,19 +114,21 @@ class LifespanStateMiddleware(Middleware):
             # Set all lifespan state keys in Context
             for key, value in _lifespan_state.items():
                 context.fastmcp_context.set_state(key, value)
-        
+
         return await call_next(context)
 
 
 class PreflightCleanupMiddleware(Middleware):
     """
     Middleware that performs best-effort cleanup of any tracked crawlers before tool execution.
-    
+
     Acts as a safety net in case previous calls were cancelled and left browser processes alive.
     """
 
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         await cleanup_crawlers(logger, timeout=5.0)
+        # Kill orphaned playwright/browser processes that survived previous runs
+        kill_child_browsers(logger, timeout=3.0)
         return await call_next(context)
 
 
@@ -144,7 +146,7 @@ async def lifespan(_mcp_server: FastMCP):
         dict: Lifespan state with crawl_runner and app_config
     """
     global _lifespan_state
-    
+
     logger.info("[C4A-MCP | Server] Starting lifespan: initializing resources")
 
     # Create BrowserConfig from app config

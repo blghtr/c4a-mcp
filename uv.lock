@@ -324,6 +324,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "crawl4ai" },
     { name = "fastmcp" },
+    { name = "psutil" },
     { name = "pydantic" },
     { name = "python-dotenv" },
 ]
@@ -345,6 +346,7 @@ requires-dist = [
     { name = "cachetools" },
     { name = "crawl4ai", specifier = ">=0.4.0" },
     { name = "fastmcp", specifier = ">=2.0.0" },
+    { name = "psutil", specifier = ">=6.0.0" },
     { name = "pydantic" },
     { name = "python-dotenv" },
 ]
